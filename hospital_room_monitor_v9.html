@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hospital Room Monitor</title>
+<link rel="stylesheet" href="hospital_room_monitor_v9.css">
+</head>
+<body>
+<div id="app"></div>
+
+<!-- search results dropdown -->
+<div class="search-results" id="searchResults">
+  <div class="sr-title">Search Results</div>
+  <div class="sr-filters" id="srFilters">
+    <div class="field-group"><label class="field-label" for="filterFloor">Floor</label><select class="field-select" id="filterFloor"><option value="all">All floors</option></select></div>
+    <div class="field-group"><label class="field-label" for="filterRoom">Room</label><input class="field-input" id="filterRoom" placeholder="Room name" /></div>
+    <div class="field-group"><label class="field-label" for="filterType">Device Type</label><select class="field-select" id="filterType"><option value="all">All types</option><option value="hello">HELLO</option><option value="tv">TV</option><option value="whiteboard">WHITEBOARD</option><option value="roomsign">ROOM SIGN</option><option value="bed">BED</option></select></div>
+    <div class="field-group"><label class="field-label" for="filterStatus">Status</label><select class="field-select" id="filterStatus"><option value="all">Any status</option><option value="free">Free to Use</option><option value="inuse">In Use</option><option value="not_available">Not Available</option></select></div>
+  </div>
+  <div class="sr-tools">
+    <div class="sr-active" id="srActiveFilters"></div>
+    <button class="sr-clear" data-action="clear-filters" type="button">Clear filters</button>
+  </div>
+  <div class="sr-list" id="srList"></div>
+</div>
+
+<!-- panel -->
+<div class="panel-bg" id="panelBg" data-action="close-panel">
+  <div class="panel" id="panelEl"></div>
+</div>
+
+<!-- add device modal -->
+<div class="modal-bg" id="addDevModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">Add Device</span>
+      <button class="panel-x" data-action="close-modal" data-modal="addDevModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Device Type</label>
+        <select class="field-select" id="addDevType">
+          <option value="hello">Hello (Video Call Unit)</option>
+          <option value="tv">TV (Display)</option>
+          <option value="whiteboard">Whiteboard Display</option>
+          <option value="roomsign">Room Sign (Door Tablet)</option>
+          <option value="bed">Bed</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Device Name / Label</label>
+        <input class="field-input" id="addDevName" placeholder="e.g. Hello 5" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Serial Number (SN)</label>
+        <input class="field-input" id="addDevSN" placeholder="e.g. SN-ABC12345" />
+        <span class="field-error" id="addDevSNErr" style="display:none;"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" data-action="close-modal" data-modal="addDevModal">Cancel</button>
+      <button class="btn-primary" data-action="confirm-add-device">Add Device</button>
+    </div>
+  </div>
+</div>
+
+<!-- add room modal -->
+<div class="modal-bg" id="addRoomModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">Add Room</span>
+      <button class="panel-x" data-action="close-modal" data-modal="addRoomModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Room Name</label>
+        <input class="field-input" id="addRoomName" placeholder="e.g. Dhoma 8" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Side</label>
+        <select class="field-select" id="addRoomSide">
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Position on Corridor</label>
+        <input class="field-input" id="addRoomPos" type="number" min="1" value="1" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" data-action="close-modal" data-modal="addRoomModal">Cancel</button>
+      <button class="btn-primary" data-action="confirm-add-room">Add Room</button>
+    </div>
+  </div>
+</div>
+
+<!-- edit room modal -->
+<div class="modal-bg" id="editRoomModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">Edit Room</span>
+      <button class="panel-x" data-action="close-modal" data-modal="editRoomModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Room Name</label>
+        <input class="field-input" id="editRoomName" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Side</label>
+        <select class="field-select" id="editRoomSide">
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Position on Corridor</label>
+        <input class="field-input" id="editRoomPos" type="number" min="1" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" data-action="close-modal" data-modal="editRoomModal">Cancel</button>
+      <button class="btn-primary" data-action="confirm-edit-room">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- add floor modal -->
+<div class="modal-bg" id="addFloorModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">Add New Floor / Corridor</span>
+      <button class="panel-x" data-action="close-modal" data-modal="addFloorModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Floor / Corridor Name</label>
+        <input class="field-input" id="addFloorName" placeholder="e.g. Floor 2, Wing B, ICU" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" data-action="close-modal" data-modal="addFloorModal">Cancel</button>
+      <button class="btn-primary" data-action="confirm-add-floor">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- edit floor modal -->
+<div class="modal-bg" id="editFloorModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">Edit Floor / Corridor</span>
+      <button class="panel-x" data-action="close-modal" data-modal="editFloorModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Floor / Corridor Name</label>
+        <input class="field-input" id="editFloorName" placeholder="e.g. Floor 2, Wing B, ICU" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" data-action="close-modal" data-modal="editFloorModal">Cancel</button>
+      <button class="btn-primary" data-action="confirm-edit-floor">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- user management modal -->
+<div class="modal-bg" id="userMgmtModal">
+  <div class="modal modal-lg">
+    <div class="modal-hdr">
+      <span class="modal-title">Manage Users</span>
+      <button class="panel-x" data-action="close-modal" data-modal="userMgmtModal">×</button>
+    </div>
+    <div class="modal-body" id="userMgmtBody">
+      <!-- populated dynamically -->
+    </div>
+  </div>
+</div>
+
+<!-- confirmation modal -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal confirm-dialog">
+    <div class="modal-hdr">
+      <span class="modal-title" id="confirmTitle">Confirm Action</span>
+      <button class="panel-x" data-action="cancel-confirm">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="confirm-message" id="confirmMessage"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" data-action="cancel-confirm">Cancel</button>
+      <button class="btn-primary" id="confirmBtn" data-action="confirm-action">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+<!-- layout save bar -->
+<div class="layout-save-bar" id="layoutSaveBar" hidden>
+  <div class="layout-save-inner">
+    <span class="layout-save-icon">⟳</span>
+    <span class="layout-save-msg">Layout saved automatically</span>
+    <button class="layout-save-btn" data-action="save-layout" type="button">Save Layout</button>
+    <button class="layout-dismiss-btn" data-action="dismiss-layout-bar" type="button" aria-label="Dismiss">×</button>
+  </div>
+</div>
+
+<script src="hospital_room_monitor_v9.bundle.js"></script>
+</body>
+</html>
+
+
+
+
+

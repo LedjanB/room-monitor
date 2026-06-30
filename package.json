@@ -1,0 +1,16 @@
+{
+  "name": "v12",
+  "version": "1.0.0",
+  "description": "",
+  "main": "hospital_room_monitor_v9.auth.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "firebase": "^12.15.0"
+  }
+}

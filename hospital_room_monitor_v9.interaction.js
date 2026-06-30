@@ -1,0 +1,1119 @@
+import {
+  login,
+  logout,
+  createUser,
+  removeUser,
+  setUserRole,
+  getAuthUsers,
+  getAuthSession,
+} from './hospital_room_monitor_v9.auth.js';
+import {
+  state,
+  floors,
+  rooms,
+  STATUS,
+  devState,
+  getAllSNs,
+  typeDefaults,
+  initDevState,
+  uid,
+  noteUid,
+  toggleRoleState,
+  saveState,
+  positions,
+  getDeviceState,
+  esc,
+} from './hospital_room_monitor_v9.data.js';
+import {
+  render,
+  renderLogin,
+  renderSetup,
+  renderUserMgmtContent,
+  handleSearch,
+  clearSearch,
+  goToDevice,
+  switchFloor,
+  openPanel,
+  closePanel,
+  addField,
+  delField,
+  savePanel,
+  startEditDevName,
+  saveDevName,
+  toggleUse,
+  initDrag,
+  updateDeviceStatus,
+  updateEmployee,
+  updateUnavailableReason,
+  rebuildPanelForDevice,
+  markPanelDirty,
+} from './hospital_room_monitor_v9.render.js';
+
+let addDevRoomId = null;
+let pendingConfirm = null;
+let draggedRoomId = null;
+
+function getDeviceId(target) {
+  return target?.dataset?.deviceId || target?.dataset?.dev || target?.dataset?.id || '';
+}
+
+function isAdminRole() {
+  return state.currentRole === 'admin';
+}
+
+function showToast(message, type = 'success') {
+  const stack = document.getElementById('toastStack');
+  if (!stack) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  stack.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(8px)';
+    toast.style.transition = 'opacity .18s, transform .18s';
+    setTimeout(() => toast.remove(), 220);
+  }, 2800);
+}
+
+function openConfirm({ title, message, confirmText = 'Confirm', danger = false, onConfirm }) {
+  pendingConfirm = onConfirm;
+  const modal = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmTitle');
+  const messageEl = document.getElementById('confirmMessage');
+  const btn = document.getElementById('confirmBtn');
+  if (titleEl) titleEl.textContent = title;
+  if (messageEl) messageEl.textContent = message;
+  if (btn) {
+    btn.textContent = confirmText;
+    btn.classList.toggle('danger', danger);
+  }
+  if (modal) modal.classList.add('open');
+}
+
+function closeConfirm() {
+  pendingConfirm = null;
+  const modal = document.getElementById('confirmModal');
+  if (modal) modal.classList.remove('open');
+}
+
+function runConfirm() {
+  const fn = pendingConfirm;
+  closeConfirm();
+  if (typeof fn === 'function') fn();
+}
+
+function markError(input, errorEl, message) {
+  if (input) input.classList.add('error');
+  if (errorEl) {
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+  }
+  showToast(message, 'error');
+}
+
+function clearError(input, errorEl) {
+  if (input) input.classList.remove('error');
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.style.display = 'none';
+  }
+}
+
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function validateName(value, label) {
+  const name = normalizeText(value);
+  if (!name) return `${label} is required.`;
+  if (name.length > 80) return `${label} must be 80 characters or less.`;
+  return '';
+}
+
+function validatePosition(value) {
+  const position = Number.parseInt(value, 10);
+  if (!Number.isInteger(position) || position < 1) return { valid: false, message: 'Position must be a number greater than 0.' };
+  if (position > 100) return { valid: false, message: 'Position is too high. Use a value between 1 and 100.' };
+  return { valid: true, value: position };
+}
+
+function validateSerialNumber(value) {
+  const sn = normalizeText(value).toUpperCase();
+  if (!sn) return { valid: false, message: 'Serial number is required.' };
+  if (sn.length < 3 || sn.length > 64) return { valid: false, message: 'Serial number must be between 3 and 64 characters.' };
+  if (!/^[A-Z0-9._-]+$/.test(sn)) return { valid: false, message: 'Serial number can only use letters, numbers, dots, underscores, and hyphens.' };
+  if (getAllSNs().has(sn)) return { valid: false, message: 'This serial number already exists. Use a unique serial number.' };
+  return { valid: true, value: sn };
+}
+
+function cleanupDeviceData(devId) {
+  delete devState[devId];
+  delete positions[devId];
+}
+
+function cleanupRoomData(room) {
+  room.devices.forEach(device => cleanupDeviceData(device.id));
+}
+
+function findRoom(roomId) {
+  return rooms.find(room => room.id === roomId);
+}
+
+function findDevice(roomId, devId) {
+  const room = findRoom(roomId);
+  return { room, device: room?.devices.find(device => device.id === devId) };
+}
+
+export function openAddDevModal(roomId) {
+  if (!isAdminRole()) return;
+  addDevRoomId = roomId;
+  const nameInput = document.getElementById('addDevName');
+  const snInput = document.getElementById('addDevSN');
+  const errorEl = document.getElementById('addDevSNErr');
+
+  if (nameInput) nameInput.value = '';
+  if (snInput) snInput.value = '';
+  clearError(snInput, errorEl);
+
+  const modal = document.getElementById('addDevModal');
+  if (modal) modal.classList.add('open');
+}
+
+export function confirmAddDevice() {
+  if (!isAdminRole()) return;
+  const nameInput = document.getElementById('addDevName');
+  const snInput = document.getElementById('addDevSN');
+  const typeSelect = document.getElementById('addDevType');
+  const errorEl = document.getElementById('addDevSNErr');
+
+  const name = normalizeText(nameInput?.value);
+  const type = typeSelect ? typeSelect.value : 'hello';
+  clearError(snInput, errorEl);
+
+  const nameError = validateName(name, 'Device name');
+  if (nameError) {
+    markError(nameInput, null, nameError);
+    return;
+  }
+
+  const snResult = validateSerialNumber(snInput?.value);
+  if (!snResult.valid) {
+    markError(snInput, errorEl, snResult.message);
+    return;
+  }
+
+  const room = rooms.find(room => room.id === addDevRoomId);
+  if (!room) {
+    showToast('Room was not found.', 'error');
+    return;
+  }
+
+  const id = uid('dev');
+  const def = typeDefaults[type] || { w: 12, h: 12 };
+  const device = {
+    id,
+    type,
+    label: name,
+    sn: snResult.value,
+    x: 50,
+    y: 40,
+    w: def.w,
+    h: def.h,
+  };
+
+  room.devices.push(device);
+  initDevState(device);
+  closeModal('addDevModal');
+  render();
+  saveState();
+  showToast('Device added successfully.');
+  setTimeout(initDrag, 40);
+}
+
+export function addBedToRoom(roomId) {
+  if (!isAdminRole()) return;
+  const room = rooms.find(room => room.id === roomId);
+  if (!room) {
+    showToast('Room was not found.', 'error');
+    return;
+  }
+
+  const bedCount = room.devices.filter(device => device.type === 'bed').length;
+  const id = uid('bed');
+  const def = typeDefaults.bed || { w: 20, h: 52 };
+  let sn = `SN-BED-${id.toUpperCase()}`;
+  const allSNs = getAllSNs();
+  while (allSNs.has(sn.toLowerCase())) {
+    sn = `SN-BED-${uid('bed').toUpperCase()}`;
+  }
+
+  const xOptions = [35, 8, 68, 22, 52];
+  const yOptions = [36, 34, 34, 38, 38];
+  const slot = bedCount % xOptions.length;
+  const device = {
+    id,
+    type: 'bed',
+    label: `Bed ${bedCount + 1}`,
+    sn,
+    x: xOptions[slot],
+    y: yOptions[slot],
+    w: def.w,
+    h: def.h,
+  };
+
+  room.devices.push(device);
+  initDevState(device);
+  render();
+  saveState();
+  showToast('Bed added. Drag it into position.');
+  setTimeout(initDrag, 40);
+}
+
+export function deleteDevice(devId, roomId, event) {
+  if (!isAdminRole()) return;
+  if (event?.stopPropagation) event.stopPropagation();
+
+  const room = rooms.find(room => room.id === roomId);
+  if (!room) return;
+
+  const index = room.devices.findIndex(device => device.id === devId);
+  if (index === -1) return;
+  const device = room.devices[index];
+
+  const isBed = device.type === 'bed';
+
+  openConfirm({
+    title: isBed ? 'Delete Bed' : 'Delete Device',
+    message: isBed
+      ? `Delete "${device.label}"?
+
+This will remove the bed from this room.`
+      : `Delete "${device.label}" (${device.sn || 'no serial number'})?
+
+This will also remove its status, position, notes, and saved custom fields.`,
+    confirmText: isBed ? 'Delete Bed' : 'Delete Device',
+    danger: true,
+    onConfirm: () => {
+      room.devices.splice(index, 1);
+      cleanupDeviceData(devId);
+      closePanel();
+      render();
+      saveState();
+      showToast('Device deleted.', 'success');
+      setTimeout(initDrag, 40);
+    },
+  });
+}
+
+export function openAddRoomModal() {
+  if (!isAdminRole()) return;
+  const nameInput = document.getElementById('addRoomName');
+  const sideSelect = document.getElementById('addRoomSide');
+  const positionInput = document.getElementById('addRoomPos');
+
+  if (nameInput) nameInput.value = '';
+  if (sideSelect) sideSelect.value = 'left';
+  if (positionInput) {
+    positionInput.value = Math.max(...rooms.filter(room => room.floorId === state.currentFloorId).map(room => room.pos), 0) + 1;
+    positionInput.classList.remove('error');
+  }
+
+  const modal = document.getElementById('addRoomModal');
+  if (modal) modal.classList.add('open');
+}
+
+export function confirmAddRoom() {
+  if (!isAdminRole()) return;
+  const nameInput = document.getElementById('addRoomName');
+  const sideSelect = document.getElementById('addRoomSide');
+  const positionInput = document.getElementById('addRoomPos');
+
+  const name = normalizeText(nameInput?.value);
+  const side = sideSelect ? sideSelect.value : 'left';
+  const position = validatePosition(positionInput?.value);
+
+  [nameInput, positionInput].forEach(input => input?.classList.remove('error'));
+
+  const nameError = validateName(name, 'Room name');
+  if (nameError) {
+    markError(nameInput, null, nameError);
+    return;
+  }
+  if (!position.valid) {
+    markError(positionInput, null, position.message);
+    return;
+  }
+
+  const nameLower = name.toLowerCase();
+  if (rooms.some(r => r.floorId === state.currentFloorId && r.name?.toLowerCase() === nameLower)) {
+    markError(nameInput, null, 'A room with that name already exists on this floor.');
+    return;
+  }
+
+  const conflict = rooms.find(r => r.floorId === state.currentFloorId && r.side === side && r.pos === position.value);
+  if (conflict) {
+    markError(positionInput, null, `Position ${position.value} on the ${side} side is already used by ${conflict.name}. Choose another position.`);
+    return;
+  }
+
+  const id = uid('room');
+  rooms.push({ id, floorId: state.currentFloorId, name, side, pos: position.value, devices: [], notes: [] });
+  closeModal('addRoomModal');
+  render();
+  saveState();
+  showToast('Room added successfully.');
+}
+
+export function openEditRoomModal(roomId) {
+  if (!isAdminRole()) return;
+  state.editingRoomId = roomId;
+  const room = rooms.find(room => room.id === roomId);
+  if (!room) return;
+
+  const nameInput = document.getElementById('editRoomName');
+  const sideSelect = document.getElementById('editRoomSide');
+  const positionInput = document.getElementById('editRoomPos');
+
+  if (nameInput) nameInput.value = room.name;
+  if (sideSelect) sideSelect.value = room.side;
+  if (positionInput) positionInput.value = room.pos;
+
+  const modal = document.getElementById('editRoomModal');
+  if (modal) modal.classList.add('open');
+}
+
+export function confirmEditRoom() {
+  if (!isAdminRole()) return;
+  const room = rooms.find(room => room.id === state.editingRoomId);
+  if (!room) return;
+
+  const nameInput = document.getElementById('editRoomName');
+  const sideSelect = document.getElementById('editRoomSide');
+  const positionInput = document.getElementById('editRoomPos');
+
+  const name = normalizeText(nameInput?.value);
+  const side = sideSelect ? sideSelect.value : room.side;
+  const position = validatePosition(positionInput?.value);
+
+  [nameInput, positionInput].forEach(input => input?.classList.remove('error'));
+
+  const nameError = validateName(name, 'Room name');
+  if (nameError) {
+    markError(nameInput, null, nameError);
+    return;
+  }
+  if (!position.valid) {
+    markError(positionInput, null, position.message);
+    return;
+  }
+
+  const nameLower = name.toLowerCase();
+  if (rooms.some(r => r.floorId === room.floorId && r.id !== room.id && r.name?.toLowerCase() === nameLower)) {
+    markError(nameInput, null, 'Another room with that name already exists on this floor.');
+    return;
+  }
+
+  const conflict = rooms.find(r => r.floorId === room.floorId && r.side === side && r.id !== room.id && r.pos === position.value);
+  if (conflict) {
+    markError(positionInput, null, `Position ${position.value} on the ${side} side is already used by ${conflict.name}. Choose another position.`);
+    return;
+  }
+
+  room.name = name;
+  room.side = side;
+  room.pos = position.value;
+
+  if (state.currentRoom?.id === state.editingRoomId) {
+    state.currentRoom = room;
+  }
+
+  closeModal('editRoomModal');
+  render();
+  saveState();
+  showToast('Room updated.');
+  if (state.currentRoom) setTimeout(initDrag, 40);
+}
+
+export function deleteRoom(roomId) {
+  if (!isAdminRole()) return;
+  const room = rooms.find(room => room.id === roomId);
+  if (!room) return;
+  const deviceCount = room.devices.length;
+  const noteCount = Array.isArray(room.notes) ? room.notes.length : 0;
+
+  openConfirm({
+    title: 'Delete Room',
+    message: `Delete "${room.name}"?\n\nThis room contains ${deviceCount} device${deviceCount === 1 ? '' : 's'} and ${noteCount} note${noteCount === 1 ? '' : 's'}. Deleting the room will permanently remove them.`,
+    confirmText: 'Delete Room',
+    danger: true,
+    onConfirm: () => {
+      cleanupRoomData(room);
+      const index = rooms.findIndex(r => r.id === roomId);
+      if (index !== -1) rooms.splice(index, 1);
+      state.currentRoom = null;
+      render();
+      saveState();
+      showToast('Room deleted.', 'success');
+    },
+  });
+}
+
+export function openAddFloorModal() {
+  if (!isAdminRole()) return;
+  const nameInput = document.getElementById('addFloorName');
+  if (nameInput) {
+    nameInput.value = '';
+    nameInput.classList.remove('error');
+  }
+  const modal = document.getElementById('addFloorModal');
+  if (modal) modal.classList.add('open');
+}
+
+export function confirmAddFloor() {
+  if (!isAdminRole()) return;
+  const nameInput = document.getElementById('addFloorName');
+  const name = normalizeText(nameInput?.value);
+  nameInput?.classList.remove('error');
+
+  const nameError = validateName(name, 'Floor name');
+  if (nameError) {
+    markError(nameInput, null, nameError);
+    return;
+  }
+
+  const nameLower = name.toLowerCase();
+  if (floors.some(f => f.name?.toLowerCase() === nameLower)) {
+    markError(nameInput, null, 'A floor/corridor with that name already exists.');
+    return;
+  }
+
+  const id = uid('floor');
+  floors.push({ id, name });
+  state.currentFloorId = id;
+  state.currentRoom = null;
+  closeModal('addFloorModal');
+  render();
+  initSearchFilters();
+  saveState();
+  showToast('Floor added successfully.');
+}
+
+export function openEditFloorModal(floorId) {
+  if (!isAdminRole()) return;
+  const floor = floors.find(floor => floor.id === floorId);
+  if (!floor) return;
+  state.editingFloorId = floorId;
+  const input = document.getElementById('editFloorName');
+  if (input) {
+    input.value = floor.name;
+    input.classList.remove('error');
+  }
+  const modal = document.getElementById('editFloorModal');
+  if (modal) modal.classList.add('open');
+}
+
+export function confirmEditFloor() {
+  if (!isAdminRole()) return;
+  const floor = floors.find(floor => floor.id === state.editingFloorId);
+  const input = document.getElementById('editFloorName');
+  if (!floor) return;
+  const name = normalizeText(input?.value);
+  input?.classList.remove('error');
+
+  const nameError = validateName(name, 'Floor name');
+  if (nameError) {
+    markError(input, null, nameError);
+    return;
+  }
+  const nameLower = name.toLowerCase();
+  if (floors.some(f => f.id !== floor.id && f.name?.toLowerCase() === nameLower)) {
+    markError(input, null, 'Another floor/corridor with that name already exists.');
+    return;
+  }
+
+  floor.name = name;
+  closeModal('editFloorModal');
+  render();
+  initSearchFilters();
+  saveState();
+  showToast('Floor updated.');
+}
+
+export function deleteFloor(floorId) {
+  if (!isAdminRole()) return;
+  const floor = floors.find(floor => floor.id === floorId);
+  if (!floor) return;
+  if (floors.length <= 1) {
+    showToast('At least one floor must remain.', 'error');
+    return;
+  }
+
+  const floorRooms = rooms.filter(room => room.floorId === floorId);
+  const deviceCount = floorRooms.reduce((sum, room) => sum + room.devices.length, 0);
+  const noteCount = floorRooms.reduce((sum, room) => sum + (room.notes?.length || 0), 0);
+
+  openConfirm({
+    title: 'Delete Floor',
+    message: `Delete "${floor.name}"?\n\nThis floor contains ${floorRooms.length} room${floorRooms.length === 1 ? '' : 's'}, ${deviceCount} device${deviceCount === 1 ? '' : 's'}, and ${noteCount} room note${noteCount === 1 ? '' : 's'}. This data will be permanently deleted.`,
+    confirmText: 'Delete Floor',
+    danger: true,
+    onConfirm: () => {
+      floorRooms.forEach(cleanupRoomData);
+      for (let i = rooms.length - 1; i >= 0; i -= 1) {
+        if (rooms[i].floorId === floorId) rooms.splice(i, 1);
+      }
+      const index = floors.findIndex(f => f.id === floorId);
+      if (index !== -1) floors.splice(index, 1);
+      state.currentFloorId = floors[0]?.id || '';
+      state.currentRoom = null;
+      render();
+      initSearchFilters();
+      saveState();
+      showToast('Floor deleted.', 'success');
+    },
+  });
+}
+
+
+function normalizeRoomPositions(floorId, side) {
+  const sideRooms = rooms
+    .filter(room => room.floorId === floorId && room.side === side)
+    .sort((a, b) => a.pos - b.pos);
+  sideRooms.forEach((room, index) => {
+    room.pos = index + 1;
+  });
+}
+
+function moveRoomToSlot(roomId, targetSide, targetIndex) {
+  const room = findRoom(roomId);
+  if (!room) return false;
+  const floorId = room.floorId;
+  const sourceSide = room.side;
+  const destination = Number.parseInt(targetIndex, 10);
+  if (!Number.isInteger(destination) || destination < 1) return false;
+
+  const currentSideRooms = rooms
+    .filter(item => item.floorId === floorId && item.side === targetSide && item.id !== room.id)
+    .sort((a, b) => a.pos - b.pos);
+  const insertIndex = Math.max(0, Math.min(destination - 1, currentSideRooms.length));
+  currentSideRooms.splice(insertIndex, 0, room);
+  currentSideRooms.forEach((item, index) => {
+    item.side = targetSide;
+    item.pos = index + 1;
+  });
+
+  if (sourceSide !== targetSide) {
+    normalizeRoomPositions(floorId, sourceSide);
+  }
+  return true;
+}
+
+function clearRoomDropState() {
+  document.body.classList.remove('dragging-room');
+  document.querySelectorAll('.room-slot').forEach(slot => slot.classList.remove('drag-over'));
+}
+
+function handleRoomDragStart(event) {
+  const roomBtn = event.target?.closest?.('[data-room-draggable="true"]');
+  if (!roomBtn || !isAdminRole() || state.currentRoom) return;
+  draggedRoomId = roomBtn.dataset.room || '';
+  roomBtn.classList.add('dragging-room');
+  document.body.classList.add('dragging-room');
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', draggedRoomId);
+  }
+}
+
+function handleRoomDragOver(event) {
+  const slot = event.target?.closest?.('[data-room-slot="true"]');
+  if (!slot || !draggedRoomId || state.currentRoom) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleRoomDragEnter(event) {
+  const slot = event.target?.closest?.('[data-room-slot="true"]');
+  if (!slot || !draggedRoomId || state.currentRoom) return;
+  slot.classList.add('drag-over');
+}
+
+function handleRoomDragLeave(event) {
+  const slot = event.target?.closest?.('[data-room-slot="true"]');
+  if (!slot) return;
+  const related = event.relatedTarget;
+  if (related && slot.contains(related)) return;
+  slot.classList.remove('drag-over');
+}
+
+function handleRoomDrop(event) {
+  const slot = event.target?.closest?.('[data-room-slot="true"]');
+  if (!slot || !draggedRoomId || state.currentRoom) return;
+  event.preventDefault();
+  slot.classList.remove('drag-over');
+  const room = findRoom(draggedRoomId);
+  if (!room) {
+    clearRoomDropState();
+    draggedRoomId = null;
+    return;
+  }
+  const targetSide = slot.dataset.side;
+  const targetIndex = slot.dataset.slotIndex;
+  const currentRoomId = slot.dataset.roomId || '';
+  if (room.id === currentRoomId && room.side === targetSide && String(room.pos) === String(targetIndex)) {
+    clearRoomDropState();
+    document.querySelectorAll('[data-room-draggable="true"]').forEach(el => el.classList.remove('dragging-room'));
+    draggedRoomId = null;
+    return;
+  }
+  const moved = moveRoomToSlot(draggedRoomId, targetSide, targetIndex);
+  clearRoomDropState();
+  document.querySelectorAll('[data-room-draggable="true"]').forEach(el => el.classList.remove('dragging-room'));
+  draggedRoomId = null;
+  if (!moved) return;
+  render();
+  saveState();
+  showToast('Room layout updated.');
+}
+
+function handleRoomDragEnd() {
+  document.querySelectorAll('[data-room-draggable="true"]').forEach(el => el.classList.remove('dragging-room'));
+  clearRoomDropState();
+  draggedRoomId = null;
+}
+
+export function openRoom(roomId) {
+  state.currentRoom = rooms.find(room => room.id === roomId) || null;
+  render();
+  setTimeout(initDrag, 40);
+}
+
+export function goBack() {
+  state.currentRoom = null;
+  render();
+}
+
+export function closeModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.remove('open');
+}
+
+function addNote(target, event) {
+  const noteTarget = target.dataset.noteTarget;
+  const targetId = target.dataset.targetId;
+  const roomId = target.dataset.room;
+  const inputId = noteTarget === 'room' ? `roomNoteInput_${targetId}` : `deviceNoteInput_${targetId}`;
+  const input = document.getElementById(inputId);
+  const text = normalizeText(input?.value);
+  if (!text) {
+    showToast('Note text is required.', 'error');
+    input?.focus();
+    return;
+  }
+  if (text.length > 600) {
+    showToast('Note must be 600 characters or less.', 'error');
+    return;
+  }
+
+  const note = {
+    id: noteUid(),
+    text,
+    author: state.currentRole === 'admin' ? 'Admin' : 'Employee',
+    createdAt: new Date().toISOString(),
+  };
+
+  if (noteTarget === 'room') {
+    const room = findRoom(targetId);
+    if (!room) return;
+    if (!Array.isArray(room.notes)) room.notes = [];
+    room.notes.unshift(note);
+    if (input) input.value = '';
+    state.currentRoom = room;
+    render();
+    saveState();
+    showToast('Room note added.');
+    return;
+  }
+
+  if (noteTarget === 'device') {
+    const { room, device } = findDevice(roomId, targetId);
+    if (!room || !device) return;
+    const st = getDeviceState(targetId);
+    if (!Array.isArray(st.notes)) st.notes = [];
+    st.notes.unshift(note);
+    if (input) input.value = '';
+    rebuildPanelForDevice(targetId, roomId);
+    saveState();
+    showToast('Device note added.');
+  }
+}
+
+function deleteNote(target) {
+  if (!isAdminRole()) return;
+  const noteTarget = target.dataset.noteTarget;
+  const targetId = target.dataset.targetId;
+  const roomId = target.dataset.room;
+  const noteId = target.dataset.noteId;
+
+  openConfirm({
+    title: 'Delete Note',
+    message: 'Delete this note permanently?',
+    confirmText: 'Delete Note',
+    danger: true,
+    onConfirm: () => {
+      if (noteTarget === 'room') {
+        const room = findRoom(targetId);
+        if (!room) return;
+        room.notes = (room.notes || []).filter(note => note.id !== noteId);
+        state.currentRoom = room;
+        render();
+      } else if (noteTarget === 'device') {
+        const st = getDeviceState(targetId);
+        st.notes = (st.notes || []).filter(note => note.id !== noteId);
+        rebuildPanelForDevice(targetId, roomId);
+      }
+      saveState();
+      showToast('Note deleted.', 'success');
+    },
+  });
+}
+
+function clearSearchFilters() {
+  const input = document.getElementById('snSearchInput');
+  const floorSelect = document.getElementById('filterFloor');
+  const roomInput = document.getElementById('filterRoom');
+  const typeSelect = document.getElementById('filterType');
+  const statusSelect = document.getElementById('filterStatus');
+  if (input) input.value = '';
+  if (floorSelect) floorSelect.value = 'all';
+  if (roomInput) roomInput.value = '';
+  if (typeSelect) typeSelect.value = 'all';
+  if (statusSelect) statusSelect.value = 'all';
+  state.searchFilters = { floorId: 'all', room: '', type: 'all', status: 'all' };
+  clearSearch();
+  saveState();
+}
+
+function handleClick(event) {
+  const target = event.target?.nodeType === 3 ? event.target.parentNode : event.target;
+  const actionEl = target?.closest?.('[data-action]');
+  const action = actionEl ? actionEl.dataset.action : null;
+
+  if (action === 'close-panel' && actionEl.id === 'panelBg' && target !== actionEl) return;
+
+  if (action === 'do-login') {
+    const username = document.getElementById('loginUser')?.value || '';
+    const password = document.getElementById('loginPass')?.value || '';
+    login(username, password).then(result => {
+      if (!result.ok) { renderLogin(result.error); return; }
+      initApp();
+      render();
+    });
+    return;
+  }
+
+  if (action === 'do-setup') {
+    const username = document.getElementById('setupUser')?.value || '';
+    const password = document.getElementById('setupPass')?.value || '';
+    const confirm  = document.getElementById('setupPass2')?.value || '';
+    if (password !== confirm) { renderSetup('Passwords do not match.'); return; }
+    createUser(username, password, 'admin').then(result => {
+      if (!result.ok) { renderSetup(result.error); return; }
+      login(username, password).then(() => { initApp(); render(); });
+    });
+    return;
+  }
+
+  if (action === 'do-logout') {
+    logout();
+    state.currentRoom = null;
+    renderLogin();
+    return;
+  }
+
+  if (action === 'open-user-mgmt') {
+    const modal = document.getElementById('userMgmtModal');
+    const body  = document.getElementById('userMgmtBody');
+    if (body) body.innerHTML = renderUserMgmtContent();
+    if (modal) modal.classList.add('open');
+    return;
+  }
+
+  if (action === 'add-user') {
+    const username = document.getElementById('newUserName')?.value || '';
+    const password = document.getElementById('newUserPass')?.value || '';
+    const role     = document.getElementById('newUserRole')?.value || 'user';
+    const errorEl  = document.getElementById('addUserError');
+    createUser(username, password, role).then(result => {
+      if (!result.ok) {
+        if (errorEl) { errorEl.textContent = result.error; errorEl.style.display = 'block'; }
+        return;
+      }
+      const body = document.getElementById('userMgmtBody');
+      if (body) body.innerHTML = renderUserMgmtContent();
+      showToast(`User "${result.user.username}" added.`, 'success');
+    });
+    return;
+  }
+
+  if (action === 'delete-user') {
+    const userId = actionEl.dataset.userId;
+    const users  = getAuthUsers();
+    const user   = users.find(u => u.id === userId);
+    if (!user) return;
+    openConfirm({
+      title: 'Delete User',
+      message: `Delete "${user.username}"? This cannot be undone.`,
+      confirmText: 'Delete User',
+      danger: true,
+      onConfirm: () => {
+        const result = removeUser(userId);
+        if (!result.ok) { showToast(result.error, 'error'); return; }
+        const body = document.getElementById('userMgmtBody');
+        if (body) body.innerHTML = renderUserMgmtContent();
+        showToast('User deleted.', 'success');
+      },
+    });
+    return;
+  }
+
+  if (action === 'toggle-role') {
+    // deprecated — no-op
+    return;
+  }
+
+  if (action && actionHandlers[action]) {
+    actionHandlers[action](actionEl, event);
+    return;
+  }
+
+  const searchResults = document.getElementById('searchResults');
+  const searchInput = document.getElementById('snSearchInput');
+  if (searchResults && searchInput && !searchResults.contains(target) && target !== searchInput) {
+    clearSearch();
+  }
+}
+
+const actionHandlers = {
+  'goto-device': target => goToDevice(getDeviceId(target), target.dataset.room),
+  'switch-floor': target => switchFloor(target.dataset.floor),
+  'open-room': target => openRoom(target.dataset.room),
+  'add-floor': () => openAddFloorModal(),
+  'edit-floor': target => openEditFloorModal(target.dataset.floor),
+  'delete-floor': target => deleteFloor(target.dataset.floor),
+  'add-room': () => openAddRoomModal(),
+  'add-device': target => openAddDevModal(target.dataset.room),
+  'add-bed': target => addBedToRoom(target.dataset.room),
+  'edit-room': target => openEditRoomModal(target.dataset.room),
+  'delete-room': target => deleteRoom(target.dataset.room),
+  'go-back': () => goBack(),
+  'close-panel': () => closePanel(),
+  'close-modal': target => closeModal(target.dataset.modal),
+  'confirm-add-device': () => confirmAddDevice(),
+  'confirm-add-room': () => confirmAddRoom(),
+  'confirm-edit-room': () => confirmEditRoom(),
+  'confirm-add-floor': () => confirmAddFloor(),
+  'confirm-edit-floor': () => confirmEditFloor(),
+  'delete-device': (target, event) => deleteDevice(getDeviceId(target), target.dataset.room, event),
+  'delete-field': target => delField(getDeviceId(target), target.dataset.room, Number.parseInt(target.dataset.index, 10)),
+  'add-field': target => addField(getDeviceId(target)),
+  'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
+  'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
+  'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
+  'clear-filters': () => clearSearchFilters(),
+  'cancel-confirm': () => closeConfirm(),
+  'confirm-action': () => runConfirm(),
+  'add-note': (target, event) => addNote(target, event),
+  'delete-note': target => deleteNote(target),
+};
+
+function initSearchFilters() {
+  const floorSelect = document.getElementById('filterFloor');
+  const roomInput = document.getElementById('filterRoom');
+  const typeSelect = document.getElementById('filterType');
+  const statusSelect = document.getElementById('filterStatus');
+
+  if (floorSelect) {
+    const existing = floorSelect.value;
+    floorSelect.innerHTML = '<option value="all">All floors</option>' + floors.map(floor => `
+      <option value="${floor.id}">${esc(floor.name)}</option>`).join('');
+    floorSelect.value = state.searchFilters.floorId || existing || 'all';
+  }
+  if (roomInput) roomInput.value = state.searchFilters.room || '';
+  if (typeSelect) typeSelect.value = state.searchFilters.type || 'all';
+  if (statusSelect) statusSelect.value = state.searchFilters.status || 'all';
+}
+
+function updateSearchFilters() {
+  const floorSelect = document.getElementById('filterFloor');
+  const roomInput = document.getElementById('filterRoom');
+  const typeSelect = document.getElementById('filterType');
+  const statusSelect = document.getElementById('filterStatus');
+  if (floorSelect) state.searchFilters.floorId = floorSelect.value;
+  if (roomInput) state.searchFilters.room = roomInput.value.trim();
+  if (typeSelect) state.searchFilters.type = typeSelect.value;
+  if (statusSelect) state.searchFilters.status = statusSelect.value;
+  saveState();
+}
+
+function isSearchControl(target) {
+  return ['snSearchInput', 'filterFloor', 'filterRoom', 'filterType', 'filterStatus'].includes(target?.id);
+}
+
+function handleSearchInput() {
+  updateSearchFilters();
+  handleSearch(document.getElementById('snSearchInput')?.value || '');
+}
+
+export function initApp() {
+  initSearchFilters();
+
+  document.addEventListener('input', event => {
+    const target = event.target;
+    if (!target) return;
+
+    if (isSearchControl(target)) {
+      handleSearchInput();
+      return;
+    }
+
+    if (target.dataset.action === 'set-field') {
+      const devId = getDeviceId(target);
+      const index = Number.parseInt(target.dataset.index, 10);
+      const field = target.dataset.field;
+      if (devId && !Number.isNaN(index) && field) {
+        const st = getDeviceState(devId);
+        if (st.customFields[index]) st.customFields[index][field] = target.value;
+        markPanelDirty(devId);
+      }
+      return;
+    }
+
+    if (target.dataset.action === 'set-employee') {
+      updateEmployee(getDeviceId(target), target.dataset.room, target.value);
+      return;
+    }
+
+    if (target.dataset.action === 'set-unavailable-reason') {
+      updateUnavailableReason(getDeviceId(target), target.dataset.room, target.value);
+    }
+  });
+
+  document.addEventListener('change', event => {
+    const target = event.target;
+    if (!target) return;
+
+    if (isSearchControl(target)) {
+      handleSearchInput();
+      return;
+    }
+
+    if (target.dataset.action === 'toggle-use') {
+      toggleUse(getDeviceId(target), target.dataset.room, target.checked);
+      showToast(target.checked ? 'Device marked as in use.' : 'Device marked as free.');
+      return;
+    }
+
+    if (target.dataset.action === 'change-user-role') {
+      const userId  = target.dataset.userId;
+      const newRole = target.value;
+      const result  = setUserRole(userId, newRole);
+      if (!result.ok) {
+        showToast(result.error, 'error');
+        // Reset the dropdown to reflect actual state
+        const body = document.getElementById('userMgmtBody');
+        if (body) body.innerHTML = renderUserMgmtContent();
+        return;
+      }
+      showToast('Role updated.', 'success');
+      return;
+    }
+
+    if (target.dataset.action === 'set-status') {
+      updateDeviceStatus(getDeviceId(target), target.dataset.room, target.value);
+      const label = target.value === STATUS.FREE ? 'free to use' : target.value === STATUS.IN_USE ? 'in use' : 'not available';
+      showToast(`Device marked as ${label}.`);
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    const target = event.target;
+    if (target?.id === 'snSearchInput' && event.key === 'Escape') {
+      clearSearch();
+      return;
+    }
+    // Submit login / setup forms on Enter
+    if (event.key === 'Enter') {
+      if (target?.id === 'loginPass' || target?.id === 'loginUser') {
+        document.querySelector('[data-action="do-login"]')?.click();
+        return;
+      }
+      if (target?.id === 'setupPass2' || target?.id === 'setupPass' || target?.id === 'setupUser') {
+        document.querySelector('[data-action="do-setup"]')?.click();
+        return;
+      }
+    }
+    if (target?.dataset?.action === 'save-dev-name' && event.key === 'Enter') {
+      saveDevName(getDeviceId(target), target.dataset.room);
+      showToast('Device name saved.');
+      return;
+    }
+
+    const active = document.activeElement;
+    if (active?.classList?.contains('device')) {
+      const devId = active.dataset.deviceId;
+      const roomId = active.dataset.room;
+      if (!devId || !roomId) return;
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openPanel(devId, roomId);
+        return;
+      }
+
+      if ((event.key === 'Delete' || event.key === 'Backspace') && isAdminRole()) {
+        event.preventDefault();
+        deleteDevice(devId, roomId, event);
+        return;
+      }
+
+      if (isAdminRole() && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+        event.preventDefault();
+        const currentX = Number.parseFloat(active.style.left) || 0;
+        const currentY = Number.parseFloat(active.style.top) || 0;
+        const p = positions[devId] || { x: currentX, y: currentY };
+        const gridSize = 2;
+        const w = Number.parseFloat(active.dataset.w) || Number.parseFloat(active.style.width) || 10;
+        const h = Number.parseFloat(active.dataset.h) || Number.parseFloat(active.style.height) || 10;
+        const maxX = Math.max(0, 100 - w);
+        const maxY = Math.max(0, 100 - h);
+
+        if (event.key === 'ArrowLeft') p.x = Math.max(0, p.x - gridSize);
+        if (event.key === 'ArrowRight') p.x = Math.min(maxX, p.x + gridSize);
+        if (event.key === 'ArrowUp') p.y = Math.max(0, p.y - gridSize);
+        if (event.key === 'ArrowDown') p.y = Math.min(maxY, p.y + gridSize);
+
+        positions[devId] = p;
+        active.style.left = p.x + '%';
+        active.style.top = p.y + '%';
+        saveState();
+      }
+    }
+  });
+
+  document.addEventListener('focusin', event => {
+    const target = event.target;
+    if (target?.id === 'snSearchInput' && target.value) {
+      handleSearch(target.value);
+    }
+  });
+
+  document.addEventListener('dragstart', handleRoomDragStart);
+  document.addEventListener('dragover', handleRoomDragOver);
+  document.addEventListener('dragenter', handleRoomDragEnter);
+  document.addEventListener('dragleave', handleRoomDragLeave);
+  document.addEventListener('drop', handleRoomDrop);
+  document.addEventListener('dragend', handleRoomDragEnd);
+  document.addEventListener('click', handleClick);
+}
