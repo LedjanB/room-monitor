@@ -180,6 +180,19 @@
   </div>
 </div>
 
+<!-- notifications modal -->
+<div class="modal-bg" id="notificationsModal">
+  <div class="modal modal-lg">
+    <div class="modal-hdr">
+      <span class="modal-title">Recent Activity</span>
+      <button class="panel-x" data-action="close-modal" data-modal="notificationsModal">×</button>
+    </div>
+    <div class="modal-body" id="notificationsBody">
+      <!-- populated dynamically -->
+    </div>
+  </div>
+</div>
+
 <!-- confirmation modal -->
 <div class="modal-bg" id="confirmModal">
   <div class="modal confirm-dialog">
@@ -209,7 +222,7 @@
   </div>
 </div>
 
-<script src="hospital_room_monitor_v9.bundle.js"></script>
+<script type="module" src="hospital_room_monitor_v9.js"></script>
 </body>
 </html>
 

@@ -516,6 +516,7 @@ body.viewer .admin-only{display:none !important;}
 .toast.success{background:var(--green);}
 .toast.error{background:var(--red);}
 .toast.warning{background:#7a5200;}
+.toast.info{background:#2a5db0;}
 @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* tooltip */
 [title]{position:relative;}
@@ -918,6 +919,32 @@ body{
   color: #f09088;
 }
 .hdr-action-btn.signout:hover { background: rgba(168,35,24,.4); }
+.hdr-bell-btn {
+  position: relative;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 5px;
+  padding: 5px 9px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background .12s;
+}
+.hdr-bell-btn:hover { background: rgba(255,255,255,.22); }
+.hdr-bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+}
 
 /* ── User Management Modal ───────────────────────────────────────── */
 .modal-lg { max-width: 520px; }

@@ -20,11 +20,28 @@ import {
   esc,
   typeLabel,
   saveState,
+  saveDeviceState,
+  saveDevicePosition,
+  saveLocalUIState,
   typeDefaults,
   devSummary,
   roomHasInUse,
   bedSVG,
+  broadcastActivity,
+  getNotifications,
+  getUnreadNotificationCount,
 } from './hospital_room_monitor_v9.data.js';
+
+function statusLabel(status) {
+  if (status === STATUS.IN_USE) return 'in use';
+  if (status === STATUS.NOT_AVAILABLE) return 'not available';
+  return 'free to use';
+}
+
+function announceStatusChange(device, room, newStatus) {
+  const who = getAuthSession()?.username || 'Someone';
+  broadcastActivity(`${who} marked ${device.label} (${room.name}) as ${statusLabel(newStatus)}.`);
+}
 
 function formatNoteDate(value) {
   if (!value) return '';
@@ -53,7 +70,23 @@ function statusBadgeHTML(meta) {
   return `<div class="status-badge ${meta.className}"><div class="sbdot"></div>${esc(meta.label)}</div>`;
 }
 
+export function renderNotificationsList() {
+  const items = getNotifications();
+  if (!items.length) return '<div class="note-empty">No activity in the last 12 hours.</div>';
+  return `<div class="note-list">${items.map(n => `
+    <div class="note-item">
+      <div class="note-body">
+        <div class="note-text">${esc(n.message)}</div>
+        <div class="note-meta">${esc(formatNoteDate(n.ts))}</div>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
 const dirtyPanels = new Set();
+// Tracks each open panel's last-SAVED status (not the live dropdown
+// preview), captured once when the panel opens, so savePanel() can tell
+// whether the user actually changed anything worth announcing.
+const panelOpenedStatus = new Map();
 
 export function markPanelDirty(devId) {
   if (!devId) return;
@@ -76,7 +109,6 @@ function clearPanelDirty(devId) {
 }
 
 export function deviceHTML(dev, room) {
-  const p = pos(dev);
   const st = getDeviceState(dev.id);
   const meta = getStatusMeta(dev.id);
   const sizeScale = {
@@ -87,6 +119,7 @@ export function deviceHTML(dev, room) {
   }[dev.type] || { w: 1, h: 1 };
   const displayW = Math.max(1, Number(((dev.w || 10) * sizeScale.w).toFixed(2)));
   const displayH = Math.max(1, Number(((dev.h || 10) * sizeScale.h).toFixed(2)));
+  const p = pos(dev, displayW, displayH);
   let inner = '';
   const deletable = isAdmin();
 
@@ -165,12 +198,13 @@ export function deviceHTML(dev, room) {
 
 export function renderHeader() {
   const floorRooms = rooms.filter(r => r.floorId === state.currentFloorId);
-  const tot = rooms.reduce((sum, room) => sum + room.devices.length, 0);
+  const tot = rooms.reduce((sum, room) => sum + (room.devices?.length || 0), 0);
   const session = getAuthSession();
   const isAdm = isAdminSession();
   const roleChip = session
     ? `<span class="hdr-role-chip ${session.role === 'admin' ? 'admin' : 'user'}">${session.role === 'admin' ? 'Admin' : 'User'}</span>`
     : '';
+  const unread = session ? getUnreadNotificationCount() : 0;
 
   return `<div class="hdr">
     <div class="hdr-left">
@@ -187,6 +221,9 @@ export function renderHeader() {
       <div class="hdr-pill">${floorRooms.length} ROOMS</div>
       <div class="hdr-pill">${tot} DEVICES</div>
       ${session ? `
+        <button class="hdr-bell-btn" data-action="open-notifications" type="button" title="Recent activity">
+          🔔<span class="hdr-bell-badge" id="notifBadge" ${unread === 0 ? 'hidden' : ''}>${unread > 99 ? '99+' : unread}</span>
+        </button>
         <div class="hdr-user-info">
           <span class="hdr-username">${esc(session.username)}</span>
           ${roleChip}
@@ -301,6 +338,7 @@ export function goToDevice(devId, roomId) {
 export function switchFloor(floorId) {
   state.currentFloorId = floorId;
   state.currentRoom = null;
+  saveLocalUIState();
   render();
 }
 
@@ -417,7 +455,6 @@ export function renderRoom(room) {
 
   const devHTML = room.devices.map(device => deviceHTML(device, room)).join('');
   const floor = floors.find(floor => floor.id === room.floorId);
-  const viewNotice = !isAdmin() ? `<div class="view-notice">Employee mode: you can view everything, update device status, and leave notes. Admin mode is needed for layout changes.</div>` : '';
 
   const adminActions = isAdmin() ? `
     <button class="btn-sm ghost admin-only" data-action="edit-room" data-room="${room.id}">Edit Room</button>
@@ -453,7 +490,6 @@ export function renderRoom(room) {
           ${adminActions}
         </div>
       </div>
-      ${viewNotice}
       <div class="room-area" id="roomArea">
         <div class="room-inner" id="roomInner">
           <div class="wall-top"></div><div class="wall-left"></div>
@@ -583,49 +619,6 @@ function onPointerUp(e) {
   onMouseUp();
 }
 
-function onMouseDown(e) {
-  if (e.button !== 0) return;
-  if (e.target && e.target.closest && e.target.closest('.dev-del-btn')) return;
-  e.preventDefault();
-  const el = e.currentTarget;
-  if (!isAdmin() || el.dataset.draggable !== 'true') return;
-  const er = el.getBoundingClientRect();
-  dragOffX = e.clientX - er.left;
-  dragOffY = e.clientY - er.top;
-  dragStartX = e.clientX;
-  dragStartY = e.clientY;
-  dragEl = el;
-  dragMoved = false;
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
-}
-
-function onTouchStart(e) {
-  const touch = e.touches[0];
-  // allow tapping buttons inside device to work
-  if (e.target && e.target.closest && e.target.closest('.dev-del-btn')) return;
-  e.preventDefault();
-  const el = e.currentTarget;
-  if (!isAdmin() || el.dataset.draggable !== 'true') return;
-  const er = el.getBoundingClientRect();
-  dragOffX = touch.clientX - er.left;
-  dragOffY = touch.clientY - er.top;
-  dragStartX = touch.clientX;
-  dragStartY = touch.clientY;
-  dragEl = el;
-  dragMoved = false;
-  document.addEventListener('touchmove', onTouchMove, { passive: false });
-  document.addEventListener('touchend', onMouseUp, { passive: false });
-  document.addEventListener('touchcancel', onMouseUp, { passive: false });
-}
-
-function onTouchMove(e) {
-  if (!dragEl) return;
-  e.preventDefault();
-  const touch = e.touches[0];
-  onMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
-}
-
 function onMouseMove(e) {
   if (!dragEl) return;
   const dx = e.clientX - dragStartX;
@@ -674,6 +667,7 @@ function hideGridOverlay() {
 }
 
 function onMouseUp() {
+  const draggedDeviceId = dragMoved ? dragEl?.dataset.deviceId : null;
   if (dragEl) {
     dragEl.classList.remove('dragging');
     dragEl.style.transform = '';
@@ -689,15 +683,14 @@ function onMouseUp() {
     dragEl = null;
     dragMoved = false;
   }
-  document.removeEventListener('mousemove', onMouseMove);
-  document.removeEventListener('mouseup', onMouseUp);
   document.removeEventListener('pointermove', onPointerMove);
   document.removeEventListener('pointerup', onPointerUp);
   document.removeEventListener('pointercancel', onPointerUp);
-  document.removeEventListener('touchmove', onTouchMove);
-  document.removeEventListener('touchend', onMouseUp);
-  document.removeEventListener('touchcancel', onMouseUp);
-  try { saveState(); } catch (e) { /* ignore */ }
+  // Only persist when a device actually moved — a plain click that just
+  // opens the info panel shouldn't write to Firebase at all.
+  if (draggedDeviceId) {
+    try { saveDevicePosition(draggedDeviceId); } catch (e) { /* ignore */ }
+  }
 }
 
 export function openPanel(devId, roomId) {
@@ -705,6 +698,7 @@ export function openPanel(devId, roomId) {
   const device = room && room.devices.find(device => device.id === devId);
   if (!device) return;
   activePanelDeviceId = devId;
+  panelOpenedStatus.set(devId, getDeviceState(devId).status);
   buildPanel(device, room);
   const panelBg = document.getElementById('panelBg');
   if (panelBg) panelBg.classList.add('open');
@@ -847,6 +841,11 @@ export function savePanel(devId, roomId) {
   st.customFields = [];
 
   const statusSelect = document.getElementById(`statusSelect_${devId}`);
+  // st.status was already live-updated by the dropdown's change handler
+  // (instant preview, rebuilding the panel each time), so the real
+  // "before" value is whatever it was when the panel was first opened.
+  const prevStatus = panelOpenedStatus.has(devId) ? panelOpenedStatus.get(devId) : st.status;
+  panelOpenedStatus.delete(devId);
   if (statusSelect && Object.values(STATUS).includes(statusSelect.value)) {
     st.status = statusSelect.value;
     st.inUse = st.status === STATUS.IN_USE;
@@ -868,12 +867,14 @@ export function savePanel(devId, roomId) {
   if (device) {
     buildPanel(device, room);
     refreshDeviceVisual(devId);
-    try { saveState(); } catch (e) { /* ignore */ }
+    try { saveDeviceState(devId); } catch (e) { /* ignore */ }
+    if (st.status !== prevStatus) announceStatusChange(device, room, st.status);
   }
 }
 
 export function toggleUse(devId, roomId, value) {
   const stateEntry = getDeviceState(devId);
+  const prevStatus = stateEntry.status;
   stateEntry.status = value ? STATUS.IN_USE : STATUS.FREE;
   stateEntry.inUse = value;
   if (!value) {
@@ -886,7 +887,8 @@ export function toggleUse(devId, roomId, value) {
   const device = room.devices.find(device => device.id === devId);
   if (device) {
     buildPanel(device, room);
-    try { saveState(); } catch (e) { /* ignore */ }
+    try { saveDeviceState(devId); } catch (e) { /* ignore */ }
+    if (stateEntry.status !== prevStatus) announceStatusChange(device, room, stateEntry.status);
   }
 }
 
@@ -898,13 +900,6 @@ export function refreshDeviceVisual(devId) {
   element.dataset.status = meta.key;
   const baseLabel = (element.getAttribute('aria-label') || '').split(' · ').slice(0, 2).join(' · ');
   element.setAttribute('aria-label', `${baseLabel || devId} · ${meta.label}`.trim());
-
-  const chip = element.querySelector('.device-status-chip');
-  if (chip) {
-    chip.classList.remove('avail', 'inuse', 'notavail');
-    chip.classList.add(meta.className);
-    chip.innerHTML = `<span class="dot"></span>${esc(meta.shortLabel)}`;
-  }
 
   const helloShape = element.querySelector('.hello-shape');
   if (helloShape) {
@@ -1013,6 +1008,7 @@ export function rebuildPanelForDevice(devId, roomId) {
 export function closePanel() {
   const panelBg = document.getElementById('panelBg');
   if (panelBg) panelBg.classList.remove('open');
+  if (activePanelDeviceId) panelOpenedStatus.delete(activePanelDeviceId);
   activePanelDeviceId = null;
   updateSelectedDeviceVisual();
 }
@@ -1068,7 +1064,7 @@ export function renderSetup(errorMsg = '') {
         </div>
         <div class="field-group">
           <label class="field-label" for="setupPass">Password</label>
-          <input class="field-input" id="setupPass" type="password" placeholder="Choose a password (min 4 characters)" autocomplete="new-password" />
+          <input class="field-input" id="setupPass" type="password" placeholder="Choose a password (min 6 characters)" autocomplete="new-password" />
         </div>
         <div class="field-group">
           <label class="field-label" for="setupPass2">Confirm Password</label>
@@ -1118,7 +1114,7 @@ export function renderUserMgmtContent() {
       </div>
       <div class="field-group">
         <label class="field-label">Password</label>
-        <input class="field-input" id="newUserPass" type="password" placeholder="Minimum 4 characters" />
+        <input class="field-input" id="newUserPass" type="password" placeholder="Minimum 6 characters" />
       </div>
       <div class="field-group">
         <label class="field-label">Role</label>

@@ -1,12 +1,11 @@
 import {
   isAdminSession,
   isLoggedIn,
+  getAuthSession,
 } from './hospital_room_monitor_v9.auth.js';
-
-const debugStore = DEBUG_HRM ? (window.HRM = window.HRM || {}) : {};
-if (!DEBUG_HRM && typeof window !== 'undefined' && window.HRM) {
-  try { delete window.HRM; } catch (e) { window.HRM = undefined; }
-}
+import {
+  db, ref, get, set, push, onValue, onChildAdded, onChildRemoved, remove,
+} from './hospital_room_monitor_v9.firebase.js';
 
 export const STATUS = {
   FREE: 'free',
@@ -14,8 +13,12 @@ export const STATUS = {
   NOT_AVAILABLE: 'not_available',
 };
 
-export const state = debugStore.state = {
-  currentRole: 'admin',
+// currentFloorId/searchFilters are per-browser UI state (which floor tab
+// you're looking at, what you've typed into search) — never written to the
+// shared Firebase /state blob and never overwritten by teammates' saves.
+// See LOCAL_UI_STORAGE_KEY below. Only floors/rooms/devState/positions/
+// uidCounter are actual shared team data.
+export const state = {
   currentFloorId: 'f1',
   currentRoom: null,
   editingRoomId: null,
@@ -45,10 +48,6 @@ export function canAddNotes() {
   return isLoggedIn(); // both admin and user can add notes
 }
 
-export function toggleRoleState() {
-  // no-op — roles are managed through real user accounts now
-}
-
 export function uid(prefix = 'dev') {
   return prefix + (++state.uidCounter);
 }
@@ -57,12 +56,12 @@ export function noteUid() {
   return 'note' + (++state.uidCounter);
 }
 
-export const floors = debugStore.floors = [
+export const floors = [
   { id:'f1', name:'Floor 1 - Corridor A' },
   { id:'f2', name:'Floor 2 - Corridor B' },
 ];
 
-export const rooms = debugStore.rooms = [
+export const rooms = [
   { id:'r1', floorId:'f1', name:'Dhoma 1', side:'left',  pos:1, devices:[
     { id:'r1-tv1',  type:'tv',         label:'TV 1',        sn:'SN-TV10001', x:3,  y:5,  w:30, h:24 },
     { id:'r1-h1',   type:'hello',      label:'Hello 1',     sn:'SN-HL10001', x:3,  y:0,  w:9,  h:6  },
@@ -131,7 +130,15 @@ export const rooms = debugStore.rooms = [
   ]},
 ];
 
-export const devState = debugStore.devState = {};
+// Pristine copy, captured before anything (localStorage cache, Firebase
+// sync) can mutate the live `rooms`/`floors` arrays above. Reseeding an
+// empty database must always use this, never the live arrays — otherwise
+// whichever browser happens to load first reseeds from its own possibly
+// stale local cache instead of the real default layout.
+const DEFAULT_FLOORS = JSON.parse(JSON.stringify(floors));
+const DEFAULT_ROOMS = JSON.parse(JSON.stringify(rooms));
+
+export const devState = {};
 
 export function normalizeDevState(entry = {}) {
   const status = entry.status || (entry.inUse ? STATUS.IN_USE : STATUS.FREE);
@@ -195,81 +202,214 @@ export function getRoomStatusCounts(room) {
   }, { free: 0, inuse: 0, not_available: 0 });
 }
 
-export const positions = debugStore.positions = {};
-export function pos(dev) {
+export const positions = {};
+// boxW/boxH are the actual rendered box size (some device types are drawn
+// smaller than dev.w/dev.h for visual padding — see sizeScale in
+// deviceHTML). Clamping must match whatever size is on screen, or a
+// position that's valid at drag time gets snapped back on the next
+// render (dragging a bed to the true bottom, then watching it jump back
+// up once state syncs).
+export function pos(dev, boxW, boxH) {
   const p = positions[dev.id] || { x: dev.x, y: dev.y };
-  // clamp saved/loaded positions to valid area so devices never render outside room
-  const w = (dev.w || 10);
-  const h = (dev.h || 10);
+  const w = boxW ?? (dev.w || 10);
+  const h = boxH ?? (dev.h || 10);
   p.x = Math.max(0, Math.min(100 - w, p.x));
   p.y = Math.max(0, Math.min(100 - h, p.y));
   return p;
 }
 
 const STORAGE_KEY = 'hrm_v9_state_v1';
+// currentFloorId/searchFilters are per-browser navigation/UI state, not team
+// data — kept in their own localStorage key and never sent to Firebase, so
+// one person's floor tab or search box can't jump everyone else's view (see
+// "Known sharp edges" in ARCHITECTURE.md).
+const LOCAL_UI_KEY = 'hrm_v9_local_ui_v1';
+const stateRef = ref(db, 'state');
+let applyingRemote = false; // guard so our own writes don't re-apply through the listener
+
+function buildStatePayload() {
+  return {
+    floors: JSON.parse(JSON.stringify(floors)),
+    rooms: JSON.parse(JSON.stringify(rooms)),
+    devState: JSON.parse(JSON.stringify(devState)),
+    positions: JSON.parse(JSON.stringify(positions)),
+    uidCounter: state.uidCounter,
+  };
+}
+
+function buildDefaultStatePayload() {
+  return {
+    floors: JSON.parse(JSON.stringify(DEFAULT_FLOORS)),
+    rooms: JSON.parse(JSON.stringify(DEFAULT_ROOMS)),
+    devState: {},
+    positions: {},
+    uidCounter: 1000,
+  };
+}
 
 export function saveState() {
+  if (applyingRemote) return; // change came from the server, don't echo it back
   try {
-    const payload = {
-      floors: JSON.parse(JSON.stringify(floors)),
-      rooms: JSON.parse(JSON.stringify(rooms)),
-      devState: JSON.parse(JSON.stringify(devState)),
-      positions: JSON.parse(JSON.stringify(positions)),
-      state: {
-        currentRole: state.currentRole,
-        currentFloorId: state.currentFloorId,
-        uidCounter: state.uidCounter,
-        searchFilters: JSON.parse(JSON.stringify(state.searchFilters)),
-      },
-      uidCounter: state.uidCounter,
-    };
+    const payload = buildStatePayload();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    set(stateRef, payload).catch(e => console.warn('Failed to sync state to Firebase', e));
   } catch (e) {
     console.warn('Failed to save state', e);
   }
 }
 
+/** Narrow, path-scoped save for a single device's status/employee/reason/
+ *  notes/custom fields. Only touches that device's own subtree, so two
+ *  people changing different devices at once can't clobber each other the
+ *  way a whole-tree saveState() can. */
+export function saveDeviceState(devId) {
+  if (!devId) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload()));
+  } catch (e) { /* ignore */ }
+  if (applyingRemote) return;
+  try {
+    set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(getDeviceState(devId))))
+      .catch(e => console.warn('Failed to sync device state to Firebase', e));
+  } catch (e) {
+    console.warn('Failed to save device state', e);
+  }
+}
+
+/** Narrow, path-scoped save for a single device's drag position — see
+ *  saveDeviceState() above for why this is scoped instead of whole-tree. */
+export function saveDevicePosition(devId) {
+  if (!devId) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload()));
+  } catch (e) { /* ignore */ }
+  if (applyingRemote) return;
+  const p = positions[devId];
+  if (!p) return;
+  try {
+    set(ref(db, `state/positions/${devId}`), p).catch(e => console.warn('Failed to sync position to Firebase', e));
+  } catch (e) {
+    console.warn('Failed to save position', e);
+  }
+}
+
+/** Persists per-browser UI state (floor tab, search filters) — localStorage
+ *  only, deliberately never synced to Firebase. */
+export function saveLocalUIState() {
+  try {
+    localStorage.setItem(LOCAL_UI_KEY, JSON.stringify({
+      currentFloorId: state.currentFloorId,
+      searchFilters: state.searchFilters,
+    }));
+  } catch (e) { /* ignore */ }
+}
+
+function loadLocalUIState() {
+  try {
+    const raw = localStorage.getItem(LOCAL_UI_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (saved.currentFloorId) state.currentFloorId = saved.currentFloorId;
+    if (saved.searchFilters) {
+      state.searchFilters = {
+        floorId: saved.searchFilters.floorId || 'all',
+        room: saved.searchFilters.room || '',
+        type: saved.searchFilters.type || 'all',
+        status: saved.searchFilters.status || 'all',
+      };
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function applyStatePayload(p, { resetNav = false } = {}) {
+  if (!p) return;
+  if (p.floors) {
+    floors.length = 0;
+    p.floors.forEach(f => floors.push(f));
+  }
+  if (p.rooms) {
+    rooms.length = 0;
+    // Firebase RTDB silently drops empty arrays/objects on write (a
+    // documented quirk — an empty [] is indistinguishable from "absent"),
+    // so a room with zero devices or notes comes back without those keys.
+    p.rooms.forEach(r => rooms.push({
+      ...r,
+      devices: Array.isArray(r.devices) ? r.devices : [],
+      notes: Array.isArray(r.notes) ? r.notes : [],
+    }));
+  } else {
+    rooms.forEach(r => {
+      if (!Array.isArray(r.devices)) r.devices = [];
+      if (!Array.isArray(r.notes)) r.notes = [];
+    });
+  }
+  if (p.devState) {
+    Object.keys(devState).forEach(k => delete devState[k]);
+    Object.entries(p.devState).forEach(([id, entry]) => {
+      devState[id] = normalizeDevState(entry);
+    });
+  }
+  if (p.positions) {
+    Object.keys(positions).forEach(k => delete positions[k]);
+    Object.assign(positions, p.positions);
+  }
+  if (resetNav) {
+    // Fresh page load — don't resume a room/edit view from a past session.
+    state.currentRoom = null;
+    state.editingRoomId = null;
+    state.editingFloorId = null;
+  } else if (state.currentRoom) {
+    // Live update while viewing a room — re-point at the fresh copy of
+    // that same room (so device changes show up) instead of dropping
+    // back to the corridor, unless the room itself was just deleted.
+    state.currentRoom = rooms.find(r => r.id === state.currentRoom.id) || null;
+  }
+  if (p.uidCounter) state.uidCounter = p.uidCounter;
+}
+
 export function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const p = JSON.parse(raw);
-    if (p.floors) {
-      floors.length = 0;
-      p.floors.forEach(f => floors.push(f));
-    }
-    if (p.rooms) {
-      rooms.length = 0;
-      p.rooms.forEach(r => rooms.push({ ...r, notes: Array.isArray(r.notes) ? r.notes : [] }));
-    } else {
-      rooms.forEach(r => { if (!Array.isArray(r.notes)) r.notes = []; });
-    }
-    if (p.devState) {
-      Object.keys(devState).forEach(k => delete devState[k]);
-      Object.entries(p.devState).forEach(([id, entry]) => {
-        devState[id] = normalizeDevState(entry);
-      });
-    }
-    if (p.positions) {
-      Object.keys(positions).forEach(k => delete positions[k]);
-      Object.assign(positions, p.positions);
-    }
-    if (p.state) {
-      Object.assign(state, p.state);
-      state.currentRoom = null;
-      state.editingRoomId = null;
-      state.editingFloorId = null;
-      state.searchFilters = {
-        floorId: state.searchFilters?.floorId || 'all',
-        room: state.searchFilters?.room || '',
-        type: state.searchFilters?.type || 'all',
-        status: state.searchFilters?.status || 'all',
-      };
-    }
-    if (p.uidCounter) state.uidCounter = p.uidCounter;
+    if (raw) applyStatePayload(JSON.parse(raw), { resetNav: true });
   } catch (e) {
-    console.warn('Failed to load state', e);
+    console.warn('Failed to load local state cache', e);
   }
+  loadLocalUIState();
+}
+
+/** Fetches the shared state from Firebase once; seeds Firebase with the
+ *  pristine default layout if nothing has been saved there yet (first run
+ *  for the team). */
+export async function loadRemoteState() {
+  try {
+    const snap = await get(stateRef);
+    if (snap.exists()) {
+      applyingRemote = true;
+      applyStatePayload(snap.val(), { resetNav: true });
+      applyingRemote = false;
+    } else {
+      const defaults = buildDefaultStatePayload();
+      await set(stateRef, defaults);
+      applyingRemote = true;
+      applyStatePayload(defaults, { resetNav: true });
+      applyingRemote = false;
+    }
+  } catch (e) {
+    console.warn('Failed to load state from Firebase, using local cache', e);
+  }
+}
+
+/** Subscribes to live updates from teammates; calls onChange() after
+ *  applying each remote update so the caller can re-render. */
+export function subscribeRemoteState(onChange) {
+  return onValue(stateRef, snap => {
+    if (!snap.exists()) return;
+    applyingRemote = true;
+    applyStatePayload(snap.val());
+    applyingRemote = false;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snap.val()));
+    onChange();
+  }, e => console.warn('Lost live sync with Firebase', e));
 }
 
 export function getAllSNs() {
@@ -347,15 +487,92 @@ export function initState() {
   });
 }
 
-if (DEBUG_HRM) {
-  Object.assign(debugStore, {
-    state,
-    floors,
-    rooms,
-    devState,
-    positions,
-    isAdmin,
-    toggleRoleState,
-    uid,
+// ── teammate activity notifications ─────────────────────────────────
+// Entries live for 12 hours (for the notification-bell history), then
+// get pruned. Cleanup is cooperative and client-side (no backend): every
+// client that subscribes prunes expired entries once, plus a periodic
+// sweep while the app stays open — no entry can survive past ~12h once
+// at least one teammate has the app open since then.
+const notificationsRef = ref(db, 'notifications');
+const NOTIFICATION_TTL_MS = 12 * 60 * 60 * 1000;
+const NOTIFICATION_PRUNE_INTERVAL_MS = 30 * 60 * 1000;
+
+let _notifications = []; // newest first
+const _knownNotificationIds = new Set();
+const NOTIF_SEEN_KEY = 'hrm_notif_last_seen_v1';
+
+export function getUnreadNotificationCount() {
+  const lastSeen = Number(localStorage.getItem(NOTIF_SEEN_KEY) || 0);
+  const myId = getAuthSession()?.id;
+  return _notifications.filter(n => n.ts > lastSeen && n.by !== myId).length;
+}
+
+export function markNotificationsSeen() {
+  localStorage.setItem(NOTIF_SEEN_KEY, String(Date.now()));
+}
+
+function pruneStaleNotifications(snapshotVal) {
+  const cutoff = Date.now() - NOTIFICATION_TTL_MS;
+  Object.entries(snapshotVal || {}).forEach(([key, entry]) => {
+    if (!entry || (entry.ts || 0) < cutoff) {
+      remove(ref(db, `notifications/${key}`)).catch(() => {});
+    }
   });
+}
+
+export function broadcastActivity(message) {
+  const session = getAuthSession();
+  set(push(notificationsRef), {
+    message, by: session?.id || '', byUsername: session?.username || '', ts: Date.now(),
+  }).catch(e => console.warn('Failed to post notification', e));
+}
+
+export function getNotifications() {
+  return _notifications;
+}
+
+/** onListChange() fires whenever the notification history changes (for
+ *  the bell dropdown). onNewNotification(entry) fires only for genuinely
+ *  new entries from someone else (for the live toast popup). */
+export async function subscribeNotifications(onListChange, onNewNotification) {
+  const session = getAuthSession();
+  const cutoff = Date.now() - NOTIFICATION_TTL_MS;
+
+  const snap = await get(notificationsRef);
+  const val = snap.val() || {};
+  pruneStaleNotifications(val);
+  _notifications = Object.entries(val)
+    .map(([id, entry]) => ({ id, ...entry }))
+    .filter(n => (n.ts || 0) >= cutoff)
+    .sort((a, b) => b.ts - a.ts);
+  _notifications.forEach(n => _knownNotificationIds.add(n.id));
+  onListChange();
+
+  const unsubAdd = onChildAdded(notificationsRef, s => {
+    if (_knownNotificationIds.has(s.key)) return; // part of the initial load above
+    _knownNotificationIds.add(s.key);
+    const entry = s.val();
+    if (!entry || (entry.ts || 0) < cutoff) return;
+    _notifications = [{ id: s.key, ...entry }, ..._notifications];
+    onListChange();
+    if (entry.by !== session?.id) onNewNotification(entry);
+  }, e => console.warn('Failed to subscribe to notifications', e));
+
+  const unsubRemove = onChildRemoved(notificationsRef, s => {
+    _knownNotificationIds.delete(s.key);
+    _notifications = _notifications.filter(n => n.id !== s.key);
+    onListChange();
+  });
+
+  const pruneTimer = setInterval(() => {
+    get(notificationsRef).then(sn => pruneStaleNotifications(sn.val() || {})).catch(() => {});
+  }, NOTIFICATION_PRUNE_INTERVAL_MS);
+
+  return () => {
+    unsubAdd();
+    unsubRemove();
+    clearInterval(pruneTimer);
+    _notifications = [];
+    _knownNotificationIds.clear();
+  };
 }

@@ -6,6 +6,8 @@ import {
   setUserRole,
   getAuthUsers,
   getAuthSession,
+  isAdminSession,
+  subscribeOwnProfile,
 } from './hospital_room_monitor_v9.auth.js';
 import {
   state,
@@ -18,17 +20,26 @@ import {
   initDevState,
   uid,
   noteUid,
-  toggleRoleState,
   saveState,
+  saveDeviceState,
+  saveDevicePosition,
+  saveLocalUIState,
   positions,
   getDeviceState,
   esc,
+  loadRemoteState,
+  subscribeRemoteState,
+  broadcastActivity,
+  subscribeNotifications,
+  getUnreadNotificationCount,
+  markNotificationsSeen as persistNotificationsSeen,
 } from './hospital_room_monitor_v9.data.js';
 import {
   render,
   renderLogin,
   renderSetup,
   renderUserMgmtContent,
+  renderNotificationsList,
   handleSearch,
   clearSearch,
   goToDevice,
@@ -57,13 +68,21 @@ function getDeviceId(target) {
   return target?.dataset?.deviceId || target?.dataset?.dev || target?.dataset?.id || '';
 }
 
+// Was reading a `state.currentRole` field that always defaulted to 'admin'
+// and was never updated from the real logged-in role — every one of these
+// checks was permanently a no-op. Delegates to the real session role now.
 function isAdminRole() {
-  return state.currentRole === 'admin';
+  return isAdminSession();
 }
+
+const MAX_VISIBLE_TOASTS = 4;
 
 function showToast(message, type = 'success') {
   const stack = document.getElementById('toastStack');
   if (!stack) return;
+  while (stack.children.length >= MAX_VISIBLE_TOASTS) {
+    stack.firstElementChild.remove(); // a burst of activity shouldn't pile up forever
+  }
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.textContent = message;
@@ -244,7 +263,9 @@ export function addBedToRoom(roomId) {
   const def = typeDefaults.bed || { w: 20, h: 52 };
   let sn = `SN-BED-${id.toUpperCase()}`;
   const allSNs = getAllSNs();
-  while (allSNs.has(sn.toLowerCase())) {
+  // getAllSNs() normalizes to uppercase, and sn is already uppercase here —
+  // comparing against sn.toLowerCase() meant this could never match.
+  while (allSNs.has(sn)) {
     sn = `SN-BED-${uid('bed').toUpperCase()}`;
   }
 
@@ -716,10 +737,11 @@ function addNote(target, event) {
     return;
   }
 
+  const who = getAuthSession()?.username || (isAdminSession() ? 'Admin' : 'Employee');
   const note = {
     id: noteUid(),
     text,
-    author: state.currentRole === 'admin' ? 'Admin' : 'Employee',
+    author: who,
     createdAt: new Date().toISOString(),
   };
 
@@ -733,6 +755,7 @@ function addNote(target, event) {
     render();
     saveState();
     showToast('Room note added.');
+    broadcastActivity(`${who} added a note on ${room.name}.`);
     return;
   }
 
@@ -744,8 +767,9 @@ function addNote(target, event) {
     st.notes.unshift(note);
     if (input) input.value = '';
     rebuildPanelForDevice(targetId, roomId);
-    saveState();
+    saveDeviceState(targetId);
     showToast('Device note added.');
+    broadcastActivity(`${who} added a note on ${device.label} (${room.name}).`);
   }
 }
 
@@ -768,12 +792,13 @@ function deleteNote(target) {
         room.notes = (room.notes || []).filter(note => note.id !== noteId);
         state.currentRoom = room;
         render();
+        saveState();
       } else if (noteTarget === 'device') {
         const st = getDeviceState(targetId);
         st.notes = (st.notes || []).filter(note => note.id !== noteId);
         rebuildPanelForDevice(targetId, roomId);
+        saveDeviceState(targetId);
       }
-      saveState();
       showToast('Note deleted.', 'success');
     },
   });
@@ -792,7 +817,7 @@ function clearSearchFilters() {
   if (statusSelect) statusSelect.value = 'all';
   state.searchFilters = { floorId: 'all', room: '', type: 'all', status: 'all' };
   clearSearch();
-  saveState();
+  saveLocalUIState();
 }
 
 function handleClick(event) {
@@ -805,9 +830,9 @@ function handleClick(event) {
   if (action === 'do-login') {
     const username = document.getElementById('loginUser')?.value || '';
     const password = document.getElementById('loginPass')?.value || '';
-    login(username, password).then(result => {
+    login(username, password).then(async result => {
       if (!result.ok) { renderLogin(result.error); return; }
-      initApp();
+      await startLiveSync();
       render();
     });
     return;
@@ -818,14 +843,17 @@ function handleClick(event) {
     const password = document.getElementById('setupPass')?.value || '';
     const confirm  = document.getElementById('setupPass2')?.value || '';
     if (password !== confirm) { renderSetup('Passwords do not match.'); return; }
-    createUser(username, password, 'admin').then(result => {
+    createUser(username, password, 'admin').then(async result => {
       if (!result.ok) { renderSetup(result.error); return; }
-      login(username, password).then(() => { initApp(); render(); });
+      // createUser already signed the new admin in on this browser.
+      await startLiveSync();
+      render();
     });
     return;
   }
 
   if (action === 'do-logout') {
+    stopLiveSync();
     logout();
     state.currentRoom = null;
     renderLogin();
@@ -837,6 +865,15 @@ function handleClick(event) {
     const body  = document.getElementById('userMgmtBody');
     if (body) body.innerHTML = renderUserMgmtContent();
     if (modal) modal.classList.add('open');
+    return;
+  }
+
+  if (action === 'open-notifications') {
+    const modal = document.getElementById('notificationsModal');
+    const body  = document.getElementById('notificationsBody');
+    if (body) body.innerHTML = renderNotificationsList();
+    if (modal) modal.classList.add('open');
+    markNotificationsSeen();
     return;
   }
 
@@ -954,7 +991,7 @@ function updateSearchFilters() {
   if (roomInput) state.searchFilters.room = roomInput.value.trim();
   if (typeSelect) state.searchFilters.type = typeSelect.value;
   if (statusSelect) state.searchFilters.status = statusSelect.value;
-  saveState();
+  saveLocalUIState();
 }
 
 function isSearchControl(target) {
@@ -966,8 +1003,60 @@ function handleSearchInput() {
   handleSearch(document.getElementById('snSearchInput')?.value || '');
 }
 
+let _unsubscribeState = null;
+let _unsubscribeNotifications = null;
+let _unsubscribeOwnProfile = null;
+
+function updateNotifBadge() {
+  const badge = document.getElementById('notifBadge');
+  if (!badge) return;
+  const count = getUnreadNotificationCount();
+  badge.hidden = count === 0;
+  badge.textContent = count > 99 ? '99+' : String(count);
+}
+
+function markNotificationsSeen() {
+  persistNotificationsSeen();
+  updateNotifBadge();
+}
+
+function refreshNotificationsIfOpen() {
+  const modal = document.getElementById('notificationsModal');
+  const body = document.getElementById('notificationsBody');
+  if (modal?.classList.contains('open') && body) body.innerHTML = renderNotificationsList();
+}
+
+/** Loads shared room/device state from Firebase and starts listening for
+ *  teammates' live updates (data + "so-and-so changed X" toasts/bell).
+ *  Only meaningful once signed in (the database rules require it), so
+ *  call after a successful login or setup. */
+export async function startLiveSync() {
+  await loadRemoteState();
+  if (_unsubscribeState) return;
+  _unsubscribeState = subscribeRemoteState(() => {
+    if (!document.querySelector('.dragging')) render();
+  });
+  _unsubscribeNotifications = await subscribeNotifications(
+    () => { updateNotifBadge(); refreshNotificationsIfOpen(); },
+    entry => showToast(entry.message, 'info'),
+  );
+  // A promotion/demotion by another admin should apply live, not just after
+  // this browser's next login.
+  _unsubscribeOwnProfile = subscribeOwnProfile(() => render());
+}
+
+function stopLiveSync() {
+  if (_unsubscribeState) { _unsubscribeState(); _unsubscribeState = null; }
+  if (_unsubscribeNotifications) { _unsubscribeNotifications(); _unsubscribeNotifications = null; }
+  if (_unsubscribeOwnProfile) { _unsubscribeOwnProfile(); _unsubscribeOwnProfile = null; }
+}
+
+let _appInitialized = false;
+
 export function initApp() {
   initSearchFilters();
+  if (_appInitialized) return; // global listeners only ever get attached once
+  _appInitialized = true;
 
   document.addEventListener('input', event => {
     const target = event.target;
@@ -1097,7 +1186,7 @@ export function initApp() {
         positions[devId] = p;
         active.style.left = p.x + '%';
         active.style.top = p.y + '%';
-        saveState();
+        saveDevicePosition(devId);
       }
     }
   });

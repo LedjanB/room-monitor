@@ -2,6 +2,9 @@ Hospital Room Monitor v10
 
 Open index.html in your browser.
 
+See ARCHITECTURE.md for the full technical writeup (stack, data model, auth,
+security rules, known sharp edges, deploy process).
+
 v10 changes:
 - Added visible Add Bed controls in the room header and Beds sidebar card.
 - Added visible Delete buttons for beds in the Beds sidebar.

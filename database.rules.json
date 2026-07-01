@@ -1,0 +1,25 @@
+{
+  "rules": {
+    "meta": {
+      "initialized": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && ((auth.uid === $uid && !data.exists()) || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "state": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
