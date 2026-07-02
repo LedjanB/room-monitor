@@ -389,14 +389,13 @@ export async function loadRemoteState() {
     const snap = await get(stateRef);
     if (snap.exists()) {
       applyingRemote = true;
-      applyStatePayload(snap.val(), { resetNav: true });
-      applyingRemote = false;
+      try { applyStatePayload(snap.val(), { resetNav: true }); } finally { applyingRemote = false; }
+      runDeviceExpiry(); // free anything left over from a previous day, before first paint
     } else {
       const defaults = buildDefaultStatePayload();
       await set(stateRef, defaults);
       applyingRemote = true;
-      applyStatePayload(defaults, { resetNav: true });
-      applyingRemote = false;
+      try { applyStatePayload(defaults, { resetNav: true }); } finally { applyingRemote = false; }
     }
   } catch (e) {
     console.warn('Failed to load state from Firebase, using local cache', e);
@@ -409,8 +408,14 @@ export function subscribeRemoteState(onChange) {
   return onValue(stateRef, snap => {
     if (!snap.exists()) return;
     applyingRemote = true;
-    applyStatePayload(snap.val());
-    applyingRemote = false;
+    // finally guarantees this flips back even if applyStatePayload throws on
+    // a malformed payload — otherwise every future save in this tab
+    // (including the auto-expiry writes) silently no-ops forever, since
+    // saveState()/saveDeviceState() early-return while this is true.
+    try { applyStatePayload(snap.val()); } finally { applyingRemote = false; }
+    // Re-apply expiry on top of every live snapshot — this is what stops the
+    // listener from re-reverting a device we just auto-freed back to in-use.
+    runDeviceExpiry();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snap.val()));
     onChange();
   }, e => console.warn('Lost live sync with Firebase', e));
@@ -492,26 +497,39 @@ export function initState() {
 }
 
 // ── device status auto-expiry ────────────────────────────────────────
-// A device left "In Use" or "Not Available" reverts to Free at the next
-// midnight (browser-local time) — otherwise a status set one day just sits
-// there forever into the next. Same cooperative, no-backend cleanup pattern
-// as the notification pruning below: whichever client is open sweeps on
-// load and every 30 minutes; worst case it's caught within 30 min of
-// midnight rather than the instant the clock ticks over.
+// A device left "In Use" or "Not Available" reverts to Free once the local
+// calendar day rolls past the day it was set (i.e. at the next midnight in
+// the viewer's own timezone). No backend/cron: expiry is re-applied every
+// single time shared state is applied from Firebase — initial load AND every
+// live update (see runDeviceExpiry() calls in loadRemoteState /
+// subscribeRemoteState) — plus a periodic timer so a tab left open across
+// midnight still self-corrects.
+//
+// Why re-apply on EVERY remote snapshot instead of a one-shot sweep at
+// startup: the live onValue listener re-applies whatever is in Firebase on
+// every delivery. A one-shot sweep that ran once at login would reset
+// devState locally, then get silently clobbered moments later when the
+// listener's (still in-use) initial snapshot landed and rebuilt devState —
+// exactly the "I refreshed and it's still in use" bug. Folding expiry into
+// the apply path makes the listener re-run expiry every time, so it can
+// never leave a stale prior-day status on screen or on the server.
 const DEVICE_STATUS_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 let _deviceExpiryTimer = null;
 
-function sweepExpiredDeviceStatuses() {
+/** Mutates any expired (prior-day) non-Free device in the local devState
+ *  down to Free, and stamps a clock onto legacy in-use entries that have no
+ *  `since` yet. Returns the ids that changed so the caller can write the
+ *  corrections back. Pure-local — writes nothing itself. */
+function applyDeviceExpiry() {
   const todayKey = new Date().toDateString();
-  let changed = false;
+  const changed = [];
   Object.entries(devState).forEach(([devId, entry]) => {
-    if (entry.status === STATUS.FREE) return;
+    if (!entry || entry.status === STATUS.FREE) return;
     if (!entry.since) {
-      // Pre-existing data from before this field existed — start the
-      // clock now rather than assuming it's already overdue.
+      // Legacy data from before this field existed — give it a clock now
+      // rather than assuming it's already overdue.
       entry.since = Date.now();
-      saveDeviceState(devId);
-      changed = true;
+      changed.push(devId);
       return;
     }
     if (new Date(entry.since).toDateString() !== todayKey) {
@@ -520,21 +538,46 @@ function sweepExpiredDeviceStatuses() {
       entry.employee = '';
       entry.notAvailableReason = '';
       entry.since = Date.now();
-      saveDeviceState(devId);
-      changed = true;
+      changed.push(devId);
     }
   });
   return changed;
 }
 
-/** Starts the periodic sweep; onChange() fires whenever a device actually
- *  got auto-freed, so the caller can re-render. Call once after signing
- *  in (mirrors startLiveSync's other subscriptions). */
+/** Writes the given devices' corrected local state to their own Firebase
+ *  subtree. Deliberately bypasses saveDeviceState()'s applyingRemote guard:
+ *  these corrections are computed while processing a remote snapshot, but
+ *  they MUST still reach the server — otherwise the stale in-use value lives
+ *  on the server forever and every client keeps re-reverting to it. Called
+ *  only right after a remote apply (guard already false). Idempotent: a
+ *  device freed today won't match applyDeviceExpiry() again, so no loop. */
+function persistExpiryCorrections(devIds) {
+  if (!devIds.length) return;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload())); } catch (e) { /* ignore */ }
+  devIds.forEach(devId => {
+    const entry = devState[devId];
+    if (!entry) return;
+    set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(entry)))
+      .catch(e => console.warn('Failed to persist device auto-expiry', e));
+  });
+}
+
+/** Applies expiry to whatever is currently in devState and persists any
+ *  corrections. Returns true if anything changed (so callers can re-render). */
+function runDeviceExpiry() {
+  const changed = applyDeviceExpiry();
+  persistExpiryCorrections(changed);
+  return changed.length > 0;
+}
+
+/** Periodic timer for tabs left open across midnight (the load and
+ *  live-update paths already run expiry themselves). onChange() fires
+ *  whenever a device actually got auto-freed so the caller can re-render. */
 export function startDeviceStatusExpiry(onChange) {
-  if (sweepExpiredDeviceStatuses() && onChange) onChange();
+  if (runDeviceExpiry() && onChange) onChange();
   if (_deviceExpiryTimer) return () => {};
   _deviceExpiryTimer = setInterval(() => {
-    if (sweepExpiredDeviceStatuses() && onChange) onChange();
+    if (runDeviceExpiry() && onChange) onChange();
   }, DEVICE_STATUS_SWEEP_INTERVAL_MS);
   return () => {
     if (_deviceExpiryTimer) { clearInterval(_deviceExpiryTimer); _deviceExpiryTimer = null; }
