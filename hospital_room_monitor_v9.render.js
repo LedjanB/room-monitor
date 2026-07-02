@@ -54,6 +54,19 @@ function formatNoteDate(value) {
   }
 }
 
+function formatSinceLabel(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const diffMs = Math.max(0, Date.now() - ts);
+  const hours = Math.floor(diffMs / 3600000);
+  const mins = Math.floor((diffMs % 3600000) / 60000);
+  const ago = hours > 0 ? `${hours}h ${mins}m ago` : `${mins}m ago`;
+  const time = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(d);
+  const sameDay = new Date().toDateString() === d.toDateString();
+  const when = sameDay ? time : `${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d)}, ${time}`;
+  return `${when} (${ago})`;
+}
+
 function noteRows(notes = [], targetType, targetId, roomId = '') {
   if (!notes.length) return '<div class="note-empty">No notes yet.</div>';
   return `<div class="note-list">${notes.map(note => `
@@ -183,6 +196,10 @@ export function deviceHTML(dev, room) {
     ? `<div class="dev-actions admin-only"><button class="dev-del-btn" data-action="delete-device" data-device-id="${dev.id}" data-room="${room.id}" title="Remove device">×</button></div>`
     : '';
 
+  const quickToggle = (dev.type !== 'bed' && canUpdateStatus())
+    ? `<button class="dev-quick-toggle ${meta.className}" data-action="cycle-status" data-device-id="${dev.id}" data-room="${room.id}" title="Click to cycle status (currently ${meta.label})" aria-label="Cycle status, currently ${meta.label}"></button>`
+    : '';
+
   const draggable = isAdmin();
 
   const aria = `${esc(dev.label)} · ${typeLabel[dev.type]} · ${meta.label}`;
@@ -191,6 +208,7 @@ export function deviceHTML(dev, room) {
     data-device-id="${dev.id}" data-room="${room.id}" data-type="${dev.type}" data-status="${meta.key}" data-w="${displayW}" data-h="${displayH}"
     data-draggable="${draggable}" tabindex="0" role="button" aria-label="${esc(aria)}">
     ${delBtn}
+    ${quickToggle}
     <div class="viewer-lock"></div>
     ${inner}
   </div>`;
@@ -218,6 +236,7 @@ export function renderHeader() {
           <input type="text" placeholder="Search SN, device, room, note..." id="snSearchInput" />
         </div>
       </div>
+      <button class="hdr-quick-btn" data-action="show-free-now" type="button" title="Show every free device across all floors">Free Now</button>
       <div class="hdr-pill">${floorRooms.length} ROOMS</div>
       <div class="hdr-pill">${tot} DEVICES</div>
       ${session ? `
@@ -296,7 +315,7 @@ export function handleSearch(value) {
       ].filter(Boolean).join(' ').toLowerCase();
 
       if (q && !haystack.includes(q)) return;
-      results.push({ device, room, floor, meta });
+      results.push({ device, room, floor, meta, st });
     });
   });
 
@@ -306,11 +325,13 @@ export function handleSearch(value) {
     return;
   }
 
-  list.innerHTML = `<div class="sr-count">${results.length} result${results.length === 1 ? '' : 's'}</div>` + results.map(({ device, room, floor, meta }) => {
+  list.innerHTML = `<div class="sr-count">${results.length} result${results.length === 1 ? '' : 's'}</div>` + results.map(({ device, room, floor, meta, st }) => {
+    const since = meta.key !== STATUS.FREE && st.since ? `<span class="sr-since">${esc(formatSinceLabel(st.since))}</span>` : '';
     return `<div class="sr-item" data-action="goto-device" data-device-id="${device.id}" data-room="${room.id}">
       <span class="sr-sn">${esc(device.sn || device.label)}</span>
       <span class="sr-meta">${esc(device.label)} · ${esc(room.name)} · ${floor ? esc(floor.name) : ''} · ${typeLabel[device.type]}</span>
       <span class="sr-status ${meta.className}">${esc(meta.label)}</span>
+      ${since}
     </div>`;
   }).join('');
 }
@@ -568,7 +589,7 @@ function onDeviceClick(e) {
     e.stopPropagation();
     return;
   }
-  if (e.target && e.target.closest && e.target.closest('.dev-del-btn')) return;
+  if (e.target && e.target.closest && e.target.closest('.dev-del-btn, .dev-quick-toggle')) return;
   const el = e.currentTarget;
   if (el.dataset.type === 'bed') return;
   e.preventDefault();
@@ -582,8 +603,8 @@ function onDeviceClick(e) {
 
 function onPointerDown(e) {
   if (e.button !== 0) return;
-  // allow clicks on inner controls (delete button) to pass through
-  if (e.target && e.target.closest && e.target.closest('.dev-del-btn')) return;
+  // allow clicks on inner controls (delete button, quick status toggle) to pass through
+  if (e.target && e.target.closest && e.target.closest('.dev-del-btn, .dev-quick-toggle')) return;
   const el = e.currentTarget;
   // only start dragging for admin + draggable devices
   if (!isAdmin() || el.dataset.draggable !== 'true') return;
@@ -726,6 +747,7 @@ export function buildPanel(device, room) {
       <div class="psec-title">Status</div>
       ${statusBadgeHTML(meta)}
       ${meta.detail ? `<div class="status-detail">${esc(meta.detail)}</div>` : ''}
+      ${meta.key !== STATUS.FREE && st.since ? `<div class="status-since">${meta.key === STATUS.IN_USE ? 'In use' : 'Marked unavailable'} since ${esc(formatSinceLabel(st.since))} · auto-frees at midnight</div>` : ''}
       ${canUpdateStatus() ? `
         <div class="field-group">
           <label class="field-label" for="statusSelect_${device.id}">Device Status</label>
@@ -879,6 +901,10 @@ export function toggleUse(devId, roomId, value) {
   stateEntry.inUse = value;
   if (!value) {
     stateEntry.employee = '';
+  } else if (!stateEntry.employee) {
+    // See updateDeviceStatus() above for why: default to the acting user,
+    // stays editable.
+    stateEntry.employee = getAuthSession()?.username || '';
   }
   refreshDeviceVisual(devId);
 
@@ -968,10 +994,19 @@ export function setField(devId, index, key, value) {
 
 export function updateDeviceStatus(devId, roomId, status) {
   const st = getDeviceState(devId);
+  const prevStatus = st.status;
   st.status = Object.values(STATUS).includes(status) ? status : STATUS.FREE;
   st.inUse = st.status === STATUS.IN_USE;
   if (st.status !== STATUS.IN_USE) st.employee = '';
+  // Default the employee field to whoever is actually marking it in-use —
+  // it stays editable (someone marking a room in-use on a colleague's
+  // behalf can still type over it), this just removes the extra step and
+  // the chance of a wrong/blank name for the common case.
+  else if (!st.employee) st.employee = getAuthSession()?.username || '';
   if (st.status !== STATUS.NOT_AVAILABLE) st.notAvailableReason = '';
+  // Drives both the "since HH:MM" display and the midnight auto-expiry sweep
+  // (see startDeviceStatusExpiry() in data.js).
+  if (st.status !== prevStatus) st.since = Date.now();
   const room = rooms.find(room => room.id === roomId);
   const device = room && room.devices.find(device => device.id === devId);
   if (state.currentRoom && state.currentRoom.id === roomId) {
@@ -983,6 +1018,23 @@ export function updateDeviceStatus(devId, roomId, status) {
     buildPanel(device, room);
     markPanelDirty(devId);
   }
+}
+
+/** Immediately persists a status change and announces it. updateDeviceStatus()
+ *  above is a local-only "live preview" — the panel's status dropdown relies
+ *  on savePanel() to actually persist once the user clicks Save, so multiple
+ *  field edits (status + employee + reason) commit together in one write.
+ *  The quick-toggle tile control has no such deferred-save step, so it needs
+ *  to persist and broadcast right away, same as savePanel() does. */
+export function commitDeviceStatus(devId, roomId, status) {
+  const room = rooms.find(room => room.id === roomId);
+  const device = room && room.devices.find(device => device.id === devId);
+  const st = getDeviceState(devId);
+  const prevStatus = st.status;
+  updateDeviceStatus(devId, roomId, status);
+  clearPanelDirty(devId);
+  try { saveDeviceState(devId); } catch (e) { /* ignore */ }
+  if (device && st.status !== prevStatus) announceStatusChange(device, room, st.status);
 }
 
 export function updateEmployee(devId, roomId, value) {

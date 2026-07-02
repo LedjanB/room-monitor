@@ -35,7 +35,7 @@ around a room canvas); everyone else can update status and leave notes.
 
 | File | Role |
 |---|---|
-| `index.html` / `hospital_room_monitor_v9.html` | Identical entry HTML (kept in sync manually — see below). Loads `hospital_room_monitor_v9.js` as a module. |
+| `index.html` | Entry HTML, served by Firebase Hosting. Loads `hospital_room_monitor_v9.js` as a module. |
 | `hospital_room_monitor_v9.js` | Entry point. Boots auth, loads state, decides setup/login/app screen. |
 | `hospital_room_monitor_v9.firebase.js` | The *only* file that touches the Firebase SDK directly. Exports `db`, `auth`, and re-exports the RTDB/Auth functions everything else uses. Also has `createManagedUser()` — the "create an account without signing yourself out" trick (see Auth section). |
 | `hospital_room_monitor_v9.auth.js` | Login/session/user-management logic, built on Firebase Auth + a `/users` profile table. |
@@ -47,10 +47,6 @@ around a room canvas); everyone else can update status and leave notes.
 | `database.rules.json` | Realtime Database security rules (see Security section). |
 | `.firebaserc` | Points the Firebase CLI at the `room-monitor-6902b` project. |
 
-**Why two identical HTML files?** `index.html` is what Firebase Hosting serves by default;
-`hospital_room_monitor_v9.html` is a legacy artifact from before hosting was set up. Both
-must be edited together — there's no templating, just keep them identical.
-
 ## Data model (Realtime Database tree)
 
 ```
@@ -60,7 +56,7 @@ must be edited together — there's no templating, just keep them identical.
                            floors: [{ id, name }],
                            rooms:  [{ id, floorId, name, side, pos, devices: [...], notes: [...] }],
                            devState: { <deviceId>: { status, employee, notAvailableReason,
-                                                      customFields, savedFields, notes } },
+                                                      customFields, savedFields, notes, since } },
                            positions: { <deviceId>: { x, y } },   // drag positions, % of room canvas
                            state: { currentFloorId, uidCounter, searchFilters },
                            uidCounter,
@@ -70,6 +66,37 @@ must be edited together — there's no templating, just keep them identical.
 
 `/state` is written and read as one whole blob (`set()`/`get()` on the whole node), not
 per-field — simple, but see "Known sharp edges" below for what that costs you.
+
+## Device status auto-expiry
+
+Any non-Free status (In Use or Not Available) auto-reverts to Free at the next midnight
+(browser-local time), so a status set one day doesn't just sit there into the next.
+`devState[id].since` holds the timestamp of the last status change; `startDeviceStatusExpiry()`
+in `data.js` sweeps every device on load and every 30 minutes (same cooperative, no-backend,
+whichever-client-is-open pattern as notification pruning — see below), comparing the
+calendar day of `since` against today and silently resetting anything from a previous day
+to Free (no notification is posted for this, by design — worst case it's caught within
+30 min of midnight, not the instant the clock ticks over). Data from before this field
+existed (no `since`) gets a fresh clock starting now rather than being treated as
+already-expired.
+
+Quick status cycling: every device tile (except beds, which have no status) has a small
+colored dot in the corner (`.dev-quick-toggle` in `render.js`'s `deviceHTML()`) that cycles
+Free → In Use → Not Available → Free on click, without opening the full detail panel — for
+the common case of just flipping a status. Opening the panel (for notes, employee name, a
+"not available" reason) is still a click on the rest of the tile, unchanged. This calls
+`commitDeviceStatus()`, not `updateDeviceStatus()` — the latter only updates in-memory state
+for the panel's live-preview dropdown (real persistence there is deferred to the panel's
+"Save Changes" button, `savePanel()`); a quick-toggle click has no such deferred step, so it
+needs its own immediate persist-and-announce, which is what `commitDeviceStatus()` is for.
+(An earlier version of the quick-toggle called `updateDeviceStatus()` directly, which meant
+the click updated your own screen and showed a toast but was never actually saved to
+Firebase or seen by teammates — fixed on this pass.)
+
+"Free Now" (header button, wired to `show-free-now` in `interaction.js`) applies the
+existing search-filter panel's status=Free filter across every room/floor in one click —
+it's the same filtering `handleSearch()` already did, just given a one-click entry point
+for "what's free right now" instead of requiring the filter dropdown.
 
 ## Auth model — why it's more than it looks
 
@@ -119,12 +146,23 @@ Authentication → Users lets you bulk-delete manually.
 - Drag-in-progress is protected: the live-update handler skips re-rendering while
   `document.querySelector('.dragging')` — an in-flight remote update won't yank the DOM
   out from under an active drag.
+- Same protection applies while a text field is focused (an `<input>`/`<textarea>` —
+  employee name, note body, unavailable reason, search) — a teammate's save is still
+  applied to in-memory state, it just doesn't redraw until you're no longer typing.
+  Otherwise a well-timed remote update would wipe out whatever you were mid-typing, the
+  same failure mode the drag guard exists for.
 
 ## Notifications (the bell icon)
 
-Two layers, both driven by `/notifications`:
-1. **Toast popups** — instant, in-session, for "so-and-so just changed X." Shown via the
-   existing toast stack (capped at 4 visible so a burst of simultaneous edits can't pile
+Two layers, both driven by `/notifications`. **Current coverage: notes and status changes**
+— adding a room/device note (`addNote()` in `interaction.js`) and changing a device's status
+(`announceStatusChange()` in `render.js`, called from `savePanel()` and `commitDeviceStatus()`)
+both call `broadcastActivity()`. Layout edits (add/remove room, floor, device) and user
+management don't generate a notification. If you want that covered too, that's a product
+decision (more calls to `broadcastActivity()`), not a bug.
+1. **Toast popups** — instant, in-session, shown for new notes or status changes from a
+   teammate. Shown via
+   the existing toast stack (capped at 4 visible so a burst of simultaneous edits can't pile
    up and block the UI).
 2. **Bell dropdown** — a 12-hour rolling history ("Recent Activity"), with an unread-count
    badge (tracked per-browser in `localStorage`, not shared).
@@ -146,15 +184,29 @@ teammate opens the app now and then, nothing accumulates past ~12h.
   only an existing admin can write any profile (including their own).
 - `/state`, `/notifications` — anyone logged in can read/write. There's no per-room or
   per-field granularity; any of the ~20 accounts can edit anything. That's a deliberate
-  trade-off for a small trusted team, not an oversight — tightening it further would mean
-  per-path rules keyed to roles, which is more rule complexity for a scenario (an internal
-  QA tool with known users) that doesn't need it.
+  trade-off for a small trusted team, not an oversight.
 
-**What this does *not* protect against**: a malicious *admin* account, or a leaked
-admin password. There's no audit trail beyond the 12h notification log, and no
-Cloud-Functions-enforced business logic — all validation happens client-side. Acceptable
-for a free, 20-person internal tool; would need rethinking if this ever handled anything
-actually sensitive or adversarial.
+**Admin-only actions (room/floor/device layout, deleting notes) are enforced in the app's
+own JS** (`isAdminRole()` checks in `interaction.js`, gating every structural handler), not
+by the database rules — the rules only require *some* logged-in account, any role. This is
+a real, structural limit, not just an unfinished corner: `saveState()` writes the entire
+`/state` node in one `set()`, and that exact write path is shared by admin-only structural
+edits (delete a room) and everyone-allowed edits (add a note) — both look identical to the
+rules engine (same node, same operation), and RTDB rules cascade permission downward (a
+child rule can only grant *more* access than its parent, never less). So there's no rule
+that can block the former for non-admins without also blocking the latter for everyone.
+Closing this fully would mean splitting notes out of the `rooms`/`devState` structural
+payload so each has its own write path the rules *can* tell apart — a data-model change,
+deliberately not done. Net effect: a regular "user" account who bypasses the UI entirely
+(e.g. via the browser console) and writes to `/state` directly still has full structural
+power despite the UI hiding those buttons. Accepted for a small trusted team; revisit if
+that stops being true.
+
+**What this does *not* protect against**: a malicious *admin* account, a leaked admin
+password, or a regular user willing to bypass the UI via the console (see above). There's
+no audit trail beyond the 12h notification log, and no Cloud-Functions-enforced business
+logic — all validation happens client-side. Acceptable for a free, 20-person internal tool;
+would need rethinking if this ever handled anything actually sensitive or adversarial.
 
 ## Known sharp edges (things that will bite you again if you forget them)
 

@@ -96,6 +96,7 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
 .sr-status.avail{background:var(--green-bg);color:var(--green);border:1.5px solid var(--green-border);}
 .sr-status.inuse{background:var(--red-bg);color:var(--red);border:1.5px solid var(--red-border);}
 .sr-status.notavail{background:var(--orange-bg);color:var(--orange);border:1.5px solid var(--orange-border);}
+.sr-since{display:block;font-size:10px;font-weight:600;color:var(--text3);margin-top:2px;}
 
 /* BREADCRUMB */
 .breadcrumb{
@@ -404,6 +405,7 @@ body:not(.dragging-room) .empty-cell span{display:none;}
 .status-badge.notavail{background:var(--orange-bg);color:var(--orange);border:1.5px solid var(--orange-border);}
 .status-badge .sbdot{width:8px;height:8px;border-radius:50%;background:currentColor;}
 .status-detail{margin:-4px 0 14px;font-size:12px;font-weight:700;color:var(--text2);}
+.status-since{margin:-8px 0 14px;font-size:11px;font-weight:600;color:var(--text3);}
 
 .panel-name-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;}
 .panel-name{font-size:20px;font-weight:800;color:var(--text);}
@@ -485,6 +487,11 @@ input:checked+.toggle-slider:before{transform:translateX(18px);background:var(--
 .dev-actions{position:absolute;top:-9px;right:-9px;z-index:20;display:none;}
 .device:hover .dev-actions{display:flex;}
 .dev-del-btn{width:18px;height:18px;border-radius:50%;background:var(--red);border:none;color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.35);}
+.dev-quick-toggle{position:absolute;left:-6px;bottom:-6px;width:16px;height:16px;border-radius:50%;border:2px solid #fff;cursor:pointer;z-index:20;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.4);}
+.dev-quick-toggle.avail{background:var(--green);}
+.dev-quick-toggle.inuse{background:var(--red);}
+.dev-quick-toggle.notavail{background:var(--orange);}
+.dev-quick-toggle:hover{transform:scale(1.15);}
 
 /* viewer lock indicator */
 .viewer-lock{display:none;position:absolute;inset:0;z-index:5;cursor:default;pointer-events:none;}
@@ -913,6 +920,20 @@ body{
   transition: background .12s;
 }
 .hdr-action-btn:hover { background: rgba(255,255,255,.22); }
+.hdr-quick-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  background: rgba(44,170,80,.18);
+  border: 1px solid rgba(44,170,80,.45);
+  color: #7be09a;
+  border-radius: 5px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.hdr-quick-btn:hover { background: rgba(44,170,80,.32); }
 .hdr-action-btn.signout {
   background: rgba(168,35,24,.25);
   border-color: rgba(168,35,24,.5);

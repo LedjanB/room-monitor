@@ -30,6 +30,7 @@ import {
   loadRemoteState,
   subscribeRemoteState,
   broadcastActivity,
+  startDeviceStatusExpiry,
   subscribeNotifications,
   getUnreadNotificationCount,
   markNotificationsSeen as persistNotificationsSeen,
@@ -54,6 +55,7 @@ import {
   toggleUse,
   initDrag,
   updateDeviceStatus,
+  commitDeviceStatus,
   updateEmployee,
   updateUnavailableReason,
   rebuildPanelForDevice,
@@ -804,6 +806,32 @@ function deleteNote(target) {
   });
 }
 
+const STATUS_CYCLE = [STATUS.FREE, STATUS.IN_USE, STATUS.NOT_AVAILABLE];
+
+function cycleDeviceStatus(devId, roomId) {
+  const current = getDeviceState(devId).status;
+  const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(current) + 1) % STATUS_CYCLE.length];
+  commitDeviceStatus(devId, roomId, next); // persists + announces, unlike updateDeviceStatus()
+  const label = next === STATUS.FREE ? 'free to use' : next === STATUS.IN_USE ? 'in use' : 'not available';
+  showToast(`Device marked as ${label}.`);
+}
+
+function showFreeNow() {
+  const floorSelect = document.getElementById('filterFloor');
+  const roomInput = document.getElementById('filterRoom');
+  const typeSelect = document.getElementById('filterType');
+  const statusSelect = document.getElementById('filterStatus');
+  const searchInput = document.getElementById('snSearchInput');
+  if (floorSelect) floorSelect.value = 'all';
+  if (roomInput) roomInput.value = '';
+  if (typeSelect) typeSelect.value = 'all';
+  if (statusSelect) statusSelect.value = STATUS.FREE;
+  if (searchInput) searchInput.value = '';
+  state.searchFilters = { floorId: 'all', room: '', type: 'all', status: STATUS.FREE };
+  saveLocalUIState();
+  handleSearch('');
+}
+
 function clearSearchFilters() {
   const input = document.getElementById('snSearchInput');
   const floorSelect = document.getElementById('filterFloor');
@@ -959,6 +987,8 @@ const actionHandlers = {
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
   'clear-filters': () => clearSearchFilters(),
+  'show-free-now': () => showFreeNow(),
+  'cycle-status': target => cycleDeviceStatus(getDeviceId(target), target.dataset.room),
   'cancel-confirm': () => closeConfirm(),
   'confirm-action': () => runConfirm(),
   'add-note': (target, event) => addNote(target, event),
@@ -1006,6 +1036,7 @@ function handleSearchInput() {
 let _unsubscribeState = null;
 let _unsubscribeNotifications = null;
 let _unsubscribeOwnProfile = null;
+let _unsubscribeDeviceExpiry = null;
 
 function updateNotifBadge() {
   const badge = document.getElementById('notifBadge');
@@ -1034,7 +1065,14 @@ export async function startLiveSync() {
   await loadRemoteState();
   if (_unsubscribeState) return;
   _unsubscribeState = subscribeRemoteState(() => {
-    if (!document.querySelector('.dragging')) render();
+    // Don't let a teammate's save yank the DOM out from under an active
+    // drag (existing guard) or wipe out someone's in-progress typing in a
+    // note/employee/reason field (same failure mode, same fix) — the
+    // update is still applied to the in-memory state above, it just waits
+    // to redraw until the field is no longer focused.
+    const active = document.activeElement;
+    const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+    if (!document.querySelector('.dragging') && !typing) render();
   });
   _unsubscribeNotifications = await subscribeNotifications(
     () => { updateNotifBadge(); refreshNotificationsIfOpen(); },
@@ -1043,12 +1081,16 @@ export async function startLiveSync() {
   // A promotion/demotion by another admin should apply live, not just after
   // this browser's next login.
   _unsubscribeOwnProfile = subscribeOwnProfile(() => render());
+  // Auto-frees devices left In Use / Not Available since a previous day —
+  // see startDeviceStatusExpiry() in data.js.
+  _unsubscribeDeviceExpiry = startDeviceStatusExpiry(() => render());
 }
 
 function stopLiveSync() {
   if (_unsubscribeState) { _unsubscribeState(); _unsubscribeState = null; }
   if (_unsubscribeNotifications) { _unsubscribeNotifications(); _unsubscribeNotifications = null; }
   if (_unsubscribeOwnProfile) { _unsubscribeOwnProfile(); _unsubscribeOwnProfile = null; }
+  if (_unsubscribeDeviceExpiry) { _unsubscribeDeviceExpiry(); _unsubscribeDeviceExpiry = null; }
 }
 
 let _appInitialized = false;

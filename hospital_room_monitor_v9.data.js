@@ -150,6 +150,10 @@ export function normalizeDevState(entry = {}) {
     customFields: Array.isArray(entry.customFields) ? entry.customFields : [],
     savedFields: Array.isArray(entry.savedFields) ? entry.savedFields : [],
     notes: Array.isArray(entry.notes) ? entry.notes : [],
+    // Timestamp of the last status change — drives both the "since HH:MM"
+    // display and the midnight auto-expiry sweep below. null for devices
+    // that predate this field or have always been free.
+    since: entry.since || null,
   };
 }
 
@@ -485,6 +489,56 @@ export function initState() {
     if (!Array.isArray(room.notes)) room.notes = [];
     room.devices.forEach(initDevState);
   });
+}
+
+// ── device status auto-expiry ────────────────────────────────────────
+// A device left "In Use" or "Not Available" reverts to Free at the next
+// midnight (browser-local time) — otherwise a status set one day just sits
+// there forever into the next. Same cooperative, no-backend cleanup pattern
+// as the notification pruning below: whichever client is open sweeps on
+// load and every 30 minutes; worst case it's caught within 30 min of
+// midnight rather than the instant the clock ticks over.
+const DEVICE_STATUS_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+let _deviceExpiryTimer = null;
+
+function sweepExpiredDeviceStatuses() {
+  const todayKey = new Date().toDateString();
+  let changed = false;
+  Object.entries(devState).forEach(([devId, entry]) => {
+    if (entry.status === STATUS.FREE) return;
+    if (!entry.since) {
+      // Pre-existing data from before this field existed — start the
+      // clock now rather than assuming it's already overdue.
+      entry.since = Date.now();
+      saveDeviceState(devId);
+      changed = true;
+      return;
+    }
+    if (new Date(entry.since).toDateString() !== todayKey) {
+      entry.status = STATUS.FREE;
+      entry.inUse = false;
+      entry.employee = '';
+      entry.notAvailableReason = '';
+      entry.since = Date.now();
+      saveDeviceState(devId);
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+/** Starts the periodic sweep; onChange() fires whenever a device actually
+ *  got auto-freed, so the caller can re-render. Call once after signing
+ *  in (mirrors startLiveSync's other subscriptions). */
+export function startDeviceStatusExpiry(onChange) {
+  if (sweepExpiredDeviceStatuses() && onChange) onChange();
+  if (_deviceExpiryTimer) return () => {};
+  _deviceExpiryTimer = setInterval(() => {
+    if (sweepExpiredDeviceStatuses() && onChange) onChange();
+  }, DEVICE_STATUS_SWEEP_INTERVAL_MS);
+  return () => {
+    if (_deviceExpiryTimer) { clearInterval(_deviceExpiryTimer); _deviceExpiryTimer = null; }
+  };
 }
 
 // ── teammate activity notifications ─────────────────────────────────
