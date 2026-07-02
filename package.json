@@ -1,16 +1,6 @@
 {
-  "name": "v12",
+  "name": "hellocare-room-monitor",
   "version": "1.0.0",
-  "description": "",
-  "main": "hospital_room_monitor_v9.auth.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "firebase": "^12.15.0"
-  }
+  "description": "Shared real-time room/device status board on Firebase. No build step — plain browser ES modules; the Firebase SDK is loaded from the gstatic CDN, not npm. This file exists only so the firebase-tools CLI (run via npx) has a project root.",
+  "private": true
 }

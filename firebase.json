@@ -3,11 +3,13 @@
     "public": ".",
     "ignore": [
       "firebase.json",
+      "database.rules.json",
       "**/.*",
       "**/node_modules/**",
       "package.json",
       "package-lock.json",
-      "README.txt"
+      "README.txt",
+      "**/*.md"
     ],
     "headers": [
       {

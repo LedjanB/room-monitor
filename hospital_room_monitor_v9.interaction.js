@@ -34,6 +34,7 @@ import {
   subscribeNotifications,
   getUnreadNotificationCount,
   markNotificationsSeen as persistNotificationsSeen,
+  setSyncErrorHandler,
 } from './hospital_room_monitor_v9.data.js';
 import {
   render,
@@ -49,10 +50,10 @@ import {
   closePanel,
   addField,
   delField,
+  delSavedField,
   savePanel,
   startEditDevName,
   saveDevName,
-  toggleUse,
   initDrag,
   updateDeviceStatus,
   commitDeviceStatus,
@@ -853,6 +854,12 @@ function handleClick(event) {
   const actionEl = target?.closest?.('[data-action]');
   const action = actionEl ? actionEl.dataset.action : null;
 
+  // Form controls carry data-action for the input/change/keydown handlers,
+  // not for clicks — dispatching them here meant e.g. clicking inside the
+  // rename-device input (data-action="save-dev-name") to move the caret
+  // instantly saved and closed the editor.
+  if (actionEl && ['INPUT', 'SELECT', 'TEXTAREA'].includes(actionEl.tagName)) return;
+
   if (action === 'close-panel' && actionEl.id === 'panelBg' && target !== actionEl) return;
 
   if (action === 'do-login') {
@@ -933,18 +940,14 @@ function handleClick(event) {
       confirmText: 'Delete User',
       danger: true,
       onConfirm: () => {
-        const result = removeUser(userId);
-        if (!result.ok) { showToast(result.error, 'error'); return; }
-        const body = document.getElementById('userMgmtBody');
-        if (body) body.innerHTML = renderUserMgmtContent();
-        showToast('User deleted.', 'success');
+        removeUser(userId).then(result => {
+          if (!result.ok) { showToast(result.error, 'error'); return; }
+          const body = document.getElementById('userMgmtBody');
+          if (body) body.innerHTML = renderUserMgmtContent();
+          showToast('User deleted.', 'success');
+        });
       },
     });
-    return;
-  }
-
-  if (action === 'toggle-role') {
-    // deprecated — no-op
     return;
   }
 
@@ -982,6 +985,7 @@ const actionHandlers = {
   'confirm-edit-floor': () => confirmEditFloor(),
   'delete-device': (target, event) => deleteDevice(getDeviceId(target), target.dataset.room, event),
   'delete-field': target => delField(getDeviceId(target), target.dataset.room, Number.parseInt(target.dataset.index, 10)),
+  'delete-saved-field': target => { delSavedField(getDeviceId(target), target.dataset.room, Number.parseInt(target.dataset.index, 10)); showToast('Field removed.'); },
   'add-field': target => addField(getDeviceId(target)),
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
@@ -1100,6 +1104,10 @@ export function initApp() {
   if (_appInitialized) return; // global listeners only ever get attached once
   _appInitialized = true;
 
+  // Surface failed Firebase writes as error toasts — before this they died
+  // silently in the console while the UI claimed the save succeeded.
+  setSyncErrorHandler(message => showToast(message, 'error'));
+
   document.addEventListener('input', event => {
     const target = event.target;
     if (!target) return;
@@ -1140,31 +1148,28 @@ export function initApp() {
       return;
     }
 
-    if (target.dataset.action === 'toggle-use') {
-      toggleUse(getDeviceId(target), target.dataset.room, target.checked);
-      showToast(target.checked ? 'Device marked as in use.' : 'Device marked as free.');
-      return;
-    }
-
     if (target.dataset.action === 'change-user-role') {
       const userId  = target.dataset.userId;
       const newRole = target.value;
-      const result  = setUserRole(userId, newRole);
-      if (!result.ok) {
-        showToast(result.error, 'error');
-        // Reset the dropdown to reflect actual state
-        const body = document.getElementById('userMgmtBody');
-        if (body) body.innerHTML = renderUserMgmtContent();
-        return;
-      }
-      showToast('Role updated.', 'success');
+      setUserRole(userId, newRole).then(result => {
+        if (!result.ok) {
+          showToast(result.error, 'error');
+          // Reset the dropdown to reflect actual state
+          const body = document.getElementById('userMgmtBody');
+          if (body) body.innerHTML = renderUserMgmtContent();
+          return;
+        }
+        showToast('Role updated.', 'success');
+      });
       return;
     }
 
     if (target.dataset.action === 'set-status') {
       updateDeviceStatus(getDeviceId(target), target.dataset.room, target.value);
       const label = target.value === STATUS.FREE ? 'free to use' : target.value === STATUS.IN_USE ? 'in use' : 'not available';
-      showToast(`Device marked as ${label}.`);
+      // This is a live preview only — nothing is persisted until Save
+      // Changes. Don't tell the user it's done when it isn't.
+      showToast(`Status set to ${label} — click Save Changes to apply.`, 'info');
     }
   });
 
@@ -1189,6 +1194,16 @@ export function initApp() {
       saveDevName(getDeviceId(target), target.dataset.room);
       showToast('Device name saved.');
       return;
+    }
+    // Enter inside any modal input submits that modal's primary action
+    // (Add User, Add Room, Add Device, Add/Edit Floor…) — previously only
+    // the login/setup forms supported Enter.
+    if (event.key === 'Enter' && target?.tagName === 'INPUT') {
+      const modal = target.closest('.modal');
+      if (modal) {
+        modal.querySelector('.modal-footer .btn-primary, .btn-primary')?.click();
+        return;
+      }
     }
 
     const active = document.activeElement;

@@ -1064,14 +1064,5 @@ body{
   text-transform: uppercase;
 }
 
-/* ── Layout Save Bar ─────────────────────────────────────────────── */
-.layout-save-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:800;animation:layoutBarIn .2s ease-out;}
-.layout-save-bar[hidden]{display:none !important;}
-.layout-save-inner{display:flex;align-items:center;gap:10px;background:var(--text);color:#fff;border-radius:12px;padding:10px 14px 10px 16px;box-shadow:0 8px 32px rgba(0,0,0,.28);white-space:nowrap;}
-.layout-save-icon{font-size:15px;opacity:.6;line-height:1;}
-.layout-save-msg{font-size:13px;font-weight:600;color:rgba(255,255,255,.78);letter-spacing:.01em;}
-.layout-save-btn{font-family:inherit;font-size:12px;font-weight:800;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:7px;padding:5px 13px;cursor:pointer;transition:background .12s;}
-.layout-save-btn:hover{background:rgba(255,255,255,.26);}
-.layout-dismiss-btn{font-family:inherit;font-size:17px;line-height:1;background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;padding:0 2px;margin-left:2px;transition:color .12s;}
-.layout-dismiss-btn:hover{color:rgba(255,255,255,.85);}
-@keyframes layoutBarIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+/* ── Saved custom-field delete (in the device panel) ─────────────── */
+.pkv-del{width:24px;height:24px;font-size:14px;line-height:1;margin-left:8px;}

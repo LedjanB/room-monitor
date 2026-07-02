@@ -48,12 +48,21 @@ export function canAddNotes() {
   return isLoggedIn(); // both admin and user can add notes
 }
 
+// Counter alone isn't collision-safe: narrow saves (saveDeviceState) don't
+// sync uidCounter, so two clients can hold the same counter value and mint
+// identical ids (two notes sharing an id meant deleting one deleted both).
+// A time+random suffix makes every id globally unique regardless of counter
+// state; the counter is kept only for readable ordering.
+function uniqueSuffix() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
 export function uid(prefix = 'dev') {
-  return prefix + (++state.uidCounter);
+  return prefix + (++state.uidCounter) + '-' + uniqueSuffix();
 }
 
 export function noteUid() {
-  return 'note' + (++state.uidCounter);
+  return 'note' + (++state.uidCounter) + '-' + uniqueSuffix();
 }
 
 export const floors = [
@@ -231,6 +240,32 @@ const LOCAL_UI_KEY = 'hrm_v9_local_ui_v1';
 const stateRef = ref(db, 'state');
 let applyingRemote = false; // guard so our own writes don't re-apply through the listener
 
+// ── server-corrected clock ──────────────────────────────────────────
+// RTDB exposes the skew between this machine's clock and Firebase's
+// servers. Everything time-sensitive (status `since` stamps, midnight
+// auto-expiry, notification timestamps) uses serverNow() instead of
+// Date.now(), so one teammate with a wrong system clock can't mass-free
+// devices or post unprunable notifications for everyone.
+let _serverTimeOffset = 0;
+onValue(ref(db, '.info/serverTimeOffset'), snap => {
+  _serverTimeOffset = Number(snap.val()) || 0;
+}, () => { /* offline — fall back to the local clock */ });
+
+export function serverNow() {
+  return Date.now() + _serverTimeOffset;
+}
+
+// ── save-failure reporting ──────────────────────────────────────────
+// Firebase writes are async and can fail (offline, permissions). The UI
+// layer registers a handler (a toast) so failures are visible instead of
+// dying silently in the console while the user believes the save landed.
+let _syncErrorNotify = null;
+export function setSyncErrorHandler(fn) { _syncErrorNotify = fn; }
+function reportSyncError(message, e) {
+  console.warn(message, e);
+  if (_syncErrorNotify) _syncErrorNotify(message);
+}
+
 function buildStatePayload() {
   return {
     floors: JSON.parse(JSON.stringify(floors)),
@@ -256,7 +291,7 @@ export function saveState() {
   try {
     const payload = buildStatePayload();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    set(stateRef, payload).catch(e => console.warn('Failed to sync state to Firebase', e));
+    set(stateRef, payload).catch(e => reportSyncError('Could not save to the server — teammates may not see this change.', e));
   } catch (e) {
     console.warn('Failed to save state', e);
   }
@@ -274,7 +309,7 @@ export function saveDeviceState(devId) {
   if (applyingRemote) return;
   try {
     set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(getDeviceState(devId))))
-      .catch(e => console.warn('Failed to sync device state to Firebase', e));
+      .catch(e => reportSyncError('Could not save the device change to the server — teammates may not see it.', e));
   } catch (e) {
     console.warn('Failed to save device state', e);
   }
@@ -291,7 +326,7 @@ export function saveDevicePosition(devId) {
   const p = positions[devId];
   if (!p) return;
   try {
-    set(ref(db, `state/positions/${devId}`), p).catch(e => console.warn('Failed to sync position to Firebase', e));
+    set(ref(db, `state/positions/${devId}`), p).catch(e => reportSyncError('Could not save the new position to the server — it may snap back.', e));
   } catch (e) {
     console.warn('Failed to save position', e);
   }
@@ -368,7 +403,10 @@ function applyStatePayload(p, { resetNav = false } = {}) {
     // back to the corridor, unless the room itself was just deleted.
     state.currentRoom = rooms.find(r => r.id === state.currentRoom.id) || null;
   }
-  if (p.uidCounter) state.uidCounter = p.uidCounter;
+  // Never let a remote payload move the counter backwards — narrow saves
+  // (saveDeviceState) don't sync the counter, so the server's copy can lag
+  // behind ids this client already handed out.
+  if (p.uidCounter) state.uidCounter = Math.max(state.uidCounter, p.uidCounter);
 }
 
 export function loadState() {
@@ -416,7 +454,9 @@ export function subscribeRemoteState(onChange) {
     // Re-apply expiry on top of every live snapshot — this is what stops the
     // listener from re-reverting a device we just auto-freed back to in-use.
     runDeviceExpiry();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snap.val()));
+    // Cache the normalized, post-expiry state (not the raw snapshot, which
+    // is missing empty arrays and may still hold a just-expired status).
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload()));
     onChange();
   }, e => console.warn('Lost live sync with Firebase', e));
 }
@@ -434,7 +474,8 @@ export function esc(s) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export const typeLabel = {
@@ -497,13 +538,18 @@ export function initState() {
 }
 
 // ── device status auto-expiry ────────────────────────────────────────
-// A device left "In Use" or "Not Available" reverts to Free once the local
-// calendar day rolls past the day it was set (i.e. at the next midnight in
-// the viewer's own timezone). No backend/cron: expiry is re-applied every
-// single time shared state is applied from Firebase — initial load AND every
-// live update (see runDeviceExpiry() calls in loadRemoteState /
-// subscribeRemoteState) — plus a periodic timer so a tab left open across
-// midnight still self-corrects.
+// A device left "In Use" or "Not Available" reverts to Free once the
+// calendar day rolls past the day it was set — midnight in KOSOVO time
+// (Europe/Belgrade, CET/CEST — the same clock as Kosovo; IANA has no
+// separate Pristina zone), the team's home timezone, so everyone sees
+// statuses expire at the same moment regardless of where they're viewing
+// from. The "what day is it" question is answered with serverNow() (the
+// Firebase-server-corrected clock), so a machine with a wrong system date
+// can't mass-free everyone's statuses. No backend/cron: expiry is
+// re-applied every single time shared state is applied from Firebase —
+// initial load AND every live update (see runDeviceExpiry() calls in
+// loadRemoteState / subscribeRemoteState) — plus a periodic timer so a tab
+// left open across midnight still self-corrects.
 //
 // Why re-apply on EVERY remote snapshot instead of a one-shot sweep at
 // startup: the live onValue listener re-applies whatever is in Firebase on
@@ -514,30 +560,51 @@ export function initState() {
 // the apply path makes the listener re-run expiry every time, so it can
 // never leave a stale prior-day status on screen or on the server.
 const DEVICE_STATUS_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+const EXPIRY_TIMEZONE = 'Europe/Belgrade'; // Kosovo local time (CET/CEST)
 let _deviceExpiryTimer = null;
 
-/** Mutates any expired (prior-day) non-Free device in the local devState
- *  down to Free, and stamps a clock onto legacy in-use entries that have no
- *  `since` yet. Returns the ids that changed so the caller can write the
- *  corrections back. Pure-local — writes nothing itself. */
+/** Calendar-day key ("2026-07-03") for a timestamp, in Kosovo time. */
+function expiryDayKey(ts) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: EXPIRY_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(ts));
+  } catch (e) {
+    // Ancient browser without timezone data — fall back to local day.
+    return new Date(ts).toDateString();
+  }
+}
+
+/** Mutates any expired (prior-Kosovo-day) non-Free device in the local
+ *  devState down to Free, and stamps a clock onto legacy in-use entries that
+ *  have no `since` yet. Returns the ids that changed so the caller can write
+ *  the corrections back. Pure-local — writes nothing itself. */
 function applyDeviceExpiry() {
-  const todayKey = new Date().toDateString();
+  const now = serverNow();
+  const todayKey = expiryDayKey(now);
   const changed = [];
   Object.entries(devState).forEach(([devId, entry]) => {
     if (!entry || entry.status === STATUS.FREE) return;
     if (!entry.since) {
       // Legacy data from before this field existed — give it a clock now
       // rather than assuming it's already overdue.
-      entry.since = Date.now();
+      entry.since = now;
       changed.push(devId);
       return;
     }
-    if (new Date(entry.since).toDateString() !== todayKey) {
+    // A `since` in the future (bad clock on whichever client stamped it)
+    // must not count as "a previous day" — treat it as fresh instead.
+    if (entry.since > now) {
+      entry.since = now;
+      changed.push(devId);
+      return;
+    }
+    if (expiryDayKey(entry.since) !== todayKey) {
       entry.status = STATUS.FREE;
       entry.inUse = false;
       entry.employee = '';
       entry.notAvailableReason = '';
-      entry.since = Date.now();
+      entry.since = now;
       changed.push(devId);
     }
   });
@@ -558,7 +625,7 @@ function persistExpiryCorrections(devIds) {
     const entry = devState[devId];
     if (!entry) return;
     set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(entry)))
-      .catch(e => console.warn('Failed to persist device auto-expiry', e));
+      .catch(e => reportSyncError('Could not save an auto-expired status to the server.', e));
   });
 }
 
@@ -605,11 +672,11 @@ export function getUnreadNotificationCount() {
 }
 
 export function markNotificationsSeen() {
-  localStorage.setItem(NOTIF_SEEN_KEY, String(Date.now()));
+  localStorage.setItem(NOTIF_SEEN_KEY, String(serverNow()));
 }
 
 function pruneStaleNotifications(snapshotVal) {
-  const cutoff = Date.now() - NOTIFICATION_TTL_MS;
+  const cutoff = serverNow() - NOTIFICATION_TTL_MS;
   Object.entries(snapshotVal || {}).forEach(([key, entry]) => {
     if (!entry || (entry.ts || 0) < cutoff) {
       remove(ref(db, `notifications/${key}`)).catch(() => {});
@@ -620,7 +687,7 @@ function pruneStaleNotifications(snapshotVal) {
 export function broadcastActivity(message) {
   const session = getAuthSession();
   set(push(notificationsRef), {
-    message, by: session?.id || '', byUsername: session?.username || '', ts: Date.now(),
+    message, by: session?.id || '', byUsername: session?.username || '', ts: serverNow(),
   }).catch(e => console.warn('Failed to post notification', e));
 }
 
@@ -633,14 +700,14 @@ export function getNotifications() {
  *  new entries from someone else (for the live toast popup). */
 export async function subscribeNotifications(onListChange, onNewNotification) {
   const session = getAuthSession();
-  const cutoff = Date.now() - NOTIFICATION_TTL_MS;
 
   const snap = await get(notificationsRef);
   const val = snap.val() || {};
   pruneStaleNotifications(val);
+  const initialCutoff = serverNow() - NOTIFICATION_TTL_MS;
   _notifications = Object.entries(val)
     .map(([id, entry]) => ({ id, ...entry }))
-    .filter(n => (n.ts || 0) >= cutoff)
+    .filter(n => (n.ts || 0) >= initialCutoff)
     .sort((a, b) => b.ts - a.ts);
   _notifications.forEach(n => _knownNotificationIds.add(n.id));
   onListChange();
@@ -649,7 +716,9 @@ export async function subscribeNotifications(onListChange, onNewNotification) {
     if (_knownNotificationIds.has(s.key)) return; // part of the initial load above
     _knownNotificationIds.add(s.key);
     const entry = s.val();
-    if (!entry || (entry.ts || 0) < cutoff) return;
+    // Recompute the cutoff per event — a subscribe-time constant drifts
+    // ever more permissive the longer the tab stays open.
+    if (!entry || (entry.ts || 0) < serverNow() - NOTIFICATION_TTL_MS) return;
     _notifications = [{ id: s.key, ...entry }, ..._notifications];
     onListChange();
     if (entry.by !== session?.id) onNewNotification(entry);

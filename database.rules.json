@@ -3,14 +3,22 @@
     "meta": {
       "initialized": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": "auth != null && (data.val() !== true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".validate": "newData.isBoolean()"
       }
     },
     "users": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
-        ".write": "auth != null && ((auth.uid === $uid && !data.exists()) || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+        ".write": "auth != null && ((auth.uid === $uid && !data.exists() && root.child('meta').child('initialized').val() !== true) || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".validate": "newData.hasChildren(['username', 'role'])",
+        "username": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 60"
+        },
+        "role": {
+          ".validate": "newData.val() === 'admin' || newData.val() === 'user'"
+        }
       }
     },
     "state": {
@@ -19,7 +27,10 @@
     },
     "notifications": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "$noteId": {
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['message', 'ts']) && newData.child('message').isString() && newData.child('message').val().length <= 500 && newData.child('ts').isNumber() && newData.child('ts').val() <= now + 600000"
+      }
     }
   }
 }

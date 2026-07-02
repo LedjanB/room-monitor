@@ -21,10 +21,9 @@ around a room canvas); everyone else can update status and leave notes.
 - **No build step.** Plain ES modules (`<script type="module">`), loaded directly by the
   browser. No bundler, no npm build, no TypeScript.
 - **No local Firebase SDK install for the browser.** `hospital_room_monitor_v9.firebase.js`
-  imports the Firebase SDK straight from the `gstatic.com` CDN (pinned to `10.13.2`). The
-  `firebase` npm package in `package.json`/`node_modules` is *not* what actually runs in
-  the browser — it's just sitting there from before this was wired up. It's harmless but
-  you could remove it; nothing imports it.
+  imports the Firebase SDK straight from the `gstatic.com` CDN (pinned to `10.13.2`).
+  There are no npm dependencies at all — `package.json` exists only so the `firebase-tools`
+  CLI (run via `npx`) has a project root.
 - **Firebase Realtime Database** (not Firestore) — the whole app state is basically one
   JSON blob, which maps directly onto RTDB's tree model with minimal code.
 - **Firebase Authentication** (email/password, under the hood) for real login.
@@ -70,15 +69,20 @@ per-field — simple, but see "Known sharp edges" below for what that costs you.
 ## Device status auto-expiry
 
 Any non-Free status (In Use or Not Available) auto-reverts to Free at the next midnight
-(browser-local time), so a status set one day doesn't just sit there into the next.
-`devState[id].since` holds the timestamp of the last status change; `startDeviceStatusExpiry()`
-in `data.js` sweeps every device on load and every 30 minutes (same cooperative, no-backend,
-whichever-client-is-open pattern as notification pruning — see below), comparing the
-calendar day of `since` against today and silently resetting anything from a previous day
-to Free (no notification is posted for this, by design — worst case it's caught within
-30 min of midnight, not the instant the clock ticks over). Data from before this field
-existed (no `since`) gets a fresh clock starting now rather than being treated as
-already-expired.
+**in Kosovo time** (`Europe/Belgrade` — CET/CEST, the same clock as Kosovo; IANA has no
+separate Pristina zone), so a status set one day doesn't just sit there into the next, and
+everyone sees it expire at the same moment no matter where they're viewing from.
+"What time is it" comes from `serverNow()` in `data.js` — the local clock corrected by
+RTDB's `.info/serverTimeOffset` — so a machine with a wrong system date can't mass-free
+everyone's statuses (a `since` stamped in the future is also clamped rather than treated
+as a previous day). `devState[id].since` holds the timestamp of the last status change;
+`startDeviceStatusExpiry()` in `data.js` sweeps every device on load and every 30 minutes
+(same cooperative, no-backend, whichever-client-is-open pattern as notification pruning —
+see below), comparing the Kosovo-calendar day of `since` against today and silently
+resetting anything from a previous day to Free (no notification is posted for this, by
+design — worst case it's caught within 30 min of midnight, not the instant the clock ticks
+over). Data from before this field existed (no `since`) gets a fresh clock starting now
+rather than being treated as already-expired.
 
 Quick status cycling: every device tile (except beds, which have no status) has a small
 colored dot in the corner (`.dev-quick-toggle` in `render.js`'s `deviceHTML()`) that cycles
@@ -114,8 +118,12 @@ free.
 **Only admins can create accounts** (no public sign-up) — enforced two ways:
 1. The UI only exposes account creation via the admin-only "Manage Users" panel.
 2. The database rules (see below) require an admin-provisioned `/users/<uid>` profile to
-   exist before that uid can do anything — so even if someone found a way to create a raw
-   Firebase Auth identity directly, they'd have no profile and the app would refuse them.
+   exist before that uid can do anything. Someone who creates a raw Firebase Auth identity
+   directly (the API key is public — that's normal for Firebase) gets no profile and
+   **cannot create one themselves**: the only self-write the rules allow is the very first
+   admin's, and that path is gated on `meta/initialized` not yet being `true`. (An earlier
+   version of the rules left that bootstrap exception open forever, which meant anyone on
+   the internet could self-provision an admin profile — fixed.)
 
 **The "create a teammate without logging yourself out" trick**: Firebase's client SDK
 normally signs you in as whatever account you just created with
@@ -176,15 +184,21 @@ teammate opens the app now and then, nothing accumulates past ~12h.
 
 `database.rules.json`, in plain terms:
 - `/meta/initialized` — publicly readable (needed so a not-yet-logged-in browser can show
-  "set up the first admin" vs. "sign in"), writable only when logged in.
+  "set up the first admin" vs. "sign in"). Writable while it isn't `true` yet (the setup
+  flow sets it), and after that **only by admins** — a regular user can't flip it back to
+  re-open the setup screen. Must be a boolean.
 - `/users` — the full list is only readable by admins (so random logged-in users can't
   enumerate everyone's username); your *own* `/users/<your-uid>` is always readable (needed
-  for login to fetch your role). Writing your own profile is only allowed once, when it
-  doesn't exist yet (the very first admin's self-provisioning during setup) — after that,
-  only an existing admin can write any profile (including their own).
-- `/state`, `/notifications` — anyone logged in can read/write. There's no per-room or
-  per-field granularity; any of the ~20 accounts can edit anything. That's a deliberate
-  trade-off for a small trusted team, not an oversight.
+  for login to fetch your role). Writing your own profile is only allowed during first-run
+  setup (profile doesn't exist yet AND `meta/initialized` isn't `true`) — after that, only
+  an existing admin can write any profile (including their own). Profiles are validated:
+  `username` (string, 1–60 chars) and `role` (`admin`|`user`) are required.
+- `/state` — anyone logged in can read/write. There's no per-room or per-field granularity;
+  any of the ~20 accounts can edit anything. That's a deliberate trade-off for a small
+  trusted team, not an oversight.
+- `/notifications` — anyone logged in can read, write and prune entries, but entries are
+  validated: `message` (string ≤ 500 chars) and `ts` (number, at most 10 minutes in the
+  future) are required — so nobody can post an unprunable far-future entry.
 
 **Admin-only actions (room/floor/device layout, deleting notes) are enforced in the app's
 own JS** (`isAdminRole()` checks in `interaction.js`, gating every structural handler), not
@@ -233,12 +247,33 @@ would need rethinking if this ever handled anything actually sensitive or advers
    still gets called with the scaled width/height, not the raw one.
 5. **Hosting cache headers.** `firebase.json` sets `Cache-Control: no-cache` on every file.
    Without it, browsers cache the HTML/JS for an hour by default, and a user mid-deploy can
-   load a broken mix of old and new files. Don't remove this header.
+   load a broken mix of old and new files. Don't remove this header. The `ignore` list also
+   keeps `ARCHITECTURE.md` and `database.rules.json` out of the deploy — they used to be
+   publicly served, handing anyone the full security writeup. Don't remove those entries
+   either.
 6. **`initApp()` must stay idempotent.** It attaches all of the app's `document`-level
    event listeners (clicks, drags, keyboard). It now runs once, unconditionally, at
    startup (before login) so the Sign In / Create Account buttons actually work — a guard
    flag (`_appInitialized`) makes repeat calls a no-op. If you ever see login buttons doing
    nothing again, this is the first thing to check.
+7. **Ids must stay globally unique without the counter being in sync.** `uid()`/`noteUid()`
+   append a time+random suffix because narrow saves (`saveDeviceState()`) don't sync
+   `uidCounter` across clients — with bare counters, two clients could mint the same note
+   id and deleting one note deleted both. `applyStatePayload()` also merges the counter
+   with `Math.max`, never a plain overwrite.
+8. **All time math goes through `serverNow()`** (`data.js`) — status `since` stamps,
+   auto-expiry, notification timestamps and pruning. Don't reintroduce bare `Date.now()`
+   into any of those paths, or one wrong client clock starts corrupting shared state again.
+9. **Form controls that carry `data-action` are handled by the input/change/keydown
+   listeners, never by the click handler** — `handleClick()` deliberately skips
+   INPUT/SELECT/TEXTAREA action elements. Before that guard, clicking inside the
+   rename-device input (whose `data-action="save-dev-name"` exists for the Enter key)
+   instantly saved and closed the editor.
+10. **The panel's status dropdown is a live preview, not a save.** It mutates in-memory
+    state for instant feedback; `savePanel()` persists, and `closePanel()` rolls the
+    preview back if the panel is closed without saving (otherwise tiles keep showing a
+    status that never reached the server). Failed Firebase writes surface as error toasts
+    via `setSyncErrorHandler()` — don't remove that wiring when touching `initApp()`.
 
 ## Deploying changes
 

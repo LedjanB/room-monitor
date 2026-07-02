@@ -132,6 +132,12 @@ export async function login(username, password) {
   try {
     cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
   } catch (e) {
+    // Don't blame the user's credentials for a network problem.
+    const code = e?.code || '';
+    if (code.includes('network-request-failed'))
+      return { ok: false, error: 'Network error — check your connection and try again.' };
+    if (code.includes('too-many-requests'))
+      return { ok: false, error: 'Too many attempts — please wait a moment and try again.' };
     return { ok: false, error: 'Invalid username or password.' };
   }
 
@@ -198,14 +204,22 @@ export async function createUser(username, password, role) {
       return { ok: false, error: 'Account created but setup failed — please try logging in.' };
     }
   } else {
+    // Await the profile write — without it the new person has a Firebase
+    // Auth account but no profile, and login refuses them, while the admin
+    // was told everything worked.
+    try {
+      await set(ref(db, `users/${uid}`), user);
+    } catch (e) {
+      console.warn('Failed to save user profile', e);
+      return { ok: false, error: 'The account was created but saving its profile failed — check your connection and try again.' };
+    }
     _data.users.push(user);
-    set(ref(db, `users/${uid}`), user).catch(e => console.warn('Failed to save user profile', e));
   }
 
   return { ok: true, user };
 }
 
-export function removeUser(userId) {
+export async function removeUser(userId) {
   const user = _data.users.find(u => u.id === userId);
   if (!user) return { ok: false, error: 'User not found.' };
   if (_session && _session.id === userId)
@@ -215,16 +229,22 @@ export function removeUser(userId) {
     if (adminCount <= 1)
       return { ok: false, error: 'Cannot delete the last admin account.' };
   }
-  _data.users = _data.users.filter(u => u.id !== userId);
   // Removes their app access (the profile a login depends on). Their
   // underlying Firebase Auth sign-in still technically exists — the
   // client SDK can't delete other accounts without a backend — but
   // without a profile they can never get past login again.
-  remove(ref(db, `users/${userId}`)).catch(e => console.warn('Failed to remove user', e));
+  // Awaited so a failed delete isn't reported as success.
+  try {
+    await remove(ref(db, `users/${userId}`));
+  } catch (e) {
+    console.warn('Failed to remove user', e);
+    return { ok: false, error: 'Could not delete the user — check your connection and try again.' };
+  }
+  _data.users = _data.users.filter(u => u.id !== userId);
   return { ok: true };
 }
 
-export function setUserRole(userId, newRole) {
+export async function setUserRole(userId, newRole) {
   if (!['admin', 'user'].includes(newRole))
     return { ok: false, error: 'Invalid role.' };
   const user = _data.users.find(u => u.id === userId);
@@ -234,8 +254,13 @@ export function setUserRole(userId, newRole) {
     if (adminCount <= 1)
       return { ok: false, error: 'Cannot demote the only admin.' };
   }
+  try {
+    await update(ref(db, `users/${userId}`), { role: newRole });
+  } catch (e) {
+    console.warn('Failed to update role', e);
+    return { ok: false, error: 'Could not update the role — check your connection and try again.' };
+  }
   user.role = newRole;
-  update(ref(db, `users/${userId}`), { role: newRole }).catch(e => console.warn('Failed to update role', e));
   if (_session && _session.id === userId) _session.role = newRole;
   return { ok: true };
 }

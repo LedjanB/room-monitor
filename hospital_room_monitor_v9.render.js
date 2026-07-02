@@ -30,6 +30,7 @@ import {
   broadcastActivity,
   getNotifications,
   getUnreadNotificationCount,
+  serverNow,
 } from './hospital_room_monitor_v9.data.js';
 
 function statusLabel(status) {
@@ -57,7 +58,7 @@ function formatNoteDate(value) {
 function formatSinceLabel(ts) {
   if (!ts) return '';
   const d = new Date(ts);
-  const diffMs = Math.max(0, Date.now() - ts);
+  const diffMs = Math.max(0, serverNow() - ts);
   const hours = Math.floor(diffMs / 3600000);
   const mins = Math.floor((diffMs % 3600000) / 60000);
   const ago = hours > 0 ? `${hours}h ${mins}m ago` : `${mins}m ago`;
@@ -96,9 +97,13 @@ export function renderNotificationsList() {
 }
 
 const dirtyPanels = new Set();
-// Tracks each open panel's last-SAVED status (not the live dropdown
-// preview), captured once when the panel opens, so savePanel() can tell
-// whether the user actually changed anything worth announcing.
+// Snapshot of each open panel's last-SAVED device state (not the live
+// dropdown preview), captured once when the panel opens. Used by
+// savePanel() to tell whether the status actually changed (worth
+// announcing), and by closePanel() to roll back unsaved preview edits —
+// the dropdown mutates shared in-memory state for its live preview, so
+// abandoning the panel without saving must undo that or the tiles keep
+// showing a status that was never persisted.
 const panelOpenedStatus = new Map();
 
 export function markPanelDirty(devId) {
@@ -349,6 +354,7 @@ export function goToDevice(devId, roomId) {
   if (!room) return;
   state.currentFloorId = room.floorId;
   state.currentRoom = room;
+  saveLocalUIState(); // persist the floor switch, same as switchFloor()
   render();
   setTimeout(initDrag, 40);
   if (room.devices.some(device => device.id === devId && device.type !== 'bed')) {
@@ -489,7 +495,7 @@ export function renderRoom(room) {
 
   return `<div class="breadcrumb">
     <button data-action="go-back">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8L10 13" stroke="${isAdmin() ? '#1a6bff' : '#1a6bff'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8L10 13" stroke="#1a6bff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       ${floor ? esc(floor.name) : 'Floor Plan'}
     </button>
     <span style="color:var(--border2)">›</span>
@@ -555,7 +561,6 @@ let dragStartY = 0;
 let dragMoved = false;
 const DRAG_THRESHOLD = 2;
 const GRID_SIZE = 2; // Very light hidden snap for more freedom
-let gridOverlay = null;
 let suppressDeviceClickUntil = 0;
 let activePanelDeviceId = null;
 
@@ -648,7 +653,6 @@ function onMouseMove(e) {
   if (!dragMoved && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
     dragMoved = true;
     dragEl.classList.add('dragging');
-    showGridOverlay();
   }
 
   if (!dragMoved) return;
@@ -679,21 +683,12 @@ function onMouseMove(e) {
   positions[dragEl.dataset.deviceId] = { x, y };
 }
 
-function showGridOverlay() {
-  return;
-}
-
-function hideGridOverlay() {
-  return;
-}
-
 function onMouseUp() {
   const draggedDeviceId = dragMoved ? dragEl?.dataset.deviceId : null;
   if (dragEl) {
     dragEl.classList.remove('dragging');
     dragEl.style.transform = '';
     dragEl.style.transition = '';
-    hideGridOverlay();
     suppressDeviceClickUntil = Date.now() + 250;
     if (!dragMoved) {
       const type = dragEl.dataset.type;
@@ -719,7 +714,7 @@ export function openPanel(devId, roomId) {
   const device = room && room.devices.find(device => device.id === devId);
   if (!device) return;
   activePanelDeviceId = devId;
-  panelOpenedStatus.set(devId, getDeviceState(devId).status);
+  panelOpenedStatus.set(devId, JSON.parse(JSON.stringify(getDeviceState(devId))));
   buildPanel(device, room);
   const panelBg = document.getElementById('panelBg');
   if (panelBg) panelBg.classList.add('open');
@@ -739,8 +734,8 @@ export function buildPanel(device, room) {
       <button class="cf-del" data-action="delete-field" data-device-id="${device.id}" data-room="${room.id}" data-index="${index}">×</button>
     </div>`).join('') : '';
 
-  const savedRows = saved.length ? saved.map(field => `
-    <div class="pkv"><span class="pkv-k">${esc(field.k)}</span><span class="pkv-v">${esc(field.v)}</span></div>`).join('') : '';
+  const savedRows = saved.length ? saved.map((field, index) => `
+    <div class="pkv"><span class="pkv-k">${esc(field.k)}</span><span class="pkv-v">${esc(field.v)}</span>${admin ? `<button class="cf-del pkv-del" data-action="delete-saved-field" data-device-id="${device.id}" data-room="${room.id}" data-index="${index}" title="Remove this field">×</button>` : ''}</div>`).join('') : '';
 
   const statusDetails = `
     <div class="psec">
@@ -866,7 +861,7 @@ export function savePanel(devId, roomId) {
   // st.status was already live-updated by the dropdown's change handler
   // (instant preview, rebuilding the panel each time), so the real
   // "before" value is whatever it was when the panel was first opened.
-  const prevStatus = panelOpenedStatus.has(devId) ? panelOpenedStatus.get(devId) : st.status;
+  const prevStatus = panelOpenedStatus.has(devId) ? panelOpenedStatus.get(devId).status : st.status;
   panelOpenedStatus.delete(devId);
   if (statusSelect && Object.values(STATUS).includes(statusSelect.value)) {
     st.status = statusSelect.value;
@@ -894,30 +889,6 @@ export function savePanel(devId, roomId) {
   }
 }
 
-export function toggleUse(devId, roomId, value) {
-  const stateEntry = getDeviceState(devId);
-  const prevStatus = stateEntry.status;
-  stateEntry.status = value ? STATUS.IN_USE : STATUS.FREE;
-  stateEntry.inUse = value;
-  if (!value) {
-    stateEntry.employee = '';
-  } else if (!stateEntry.employee) {
-    // See updateDeviceStatus() above for why: default to the acting user,
-    // stays editable.
-    stateEntry.employee = getAuthSession()?.username || '';
-  }
-  refreshDeviceVisual(devId);
-
-  const room = rooms.find(room => room.id === roomId);
-  if (!room) return;
-  const device = room.devices.find(device => device.id === devId);
-  if (device) {
-    buildPanel(device, room);
-    try { saveDeviceState(devId); } catch (e) { /* ignore */ }
-    if (stateEntry.status !== prevStatus) announceStatusChange(device, room, stateEntry.status);
-  }
-}
-
 export function refreshDeviceVisual(devId) {
   const element = document.getElementById(`dev-${devId}`);
   if (!element) return;
@@ -931,11 +902,6 @@ export function refreshDeviceVisual(devId) {
   if (helloShape) {
     helloShape.classList.toggle('in-use', !isFree);
     helloShape.classList.toggle('available', isFree);
-    const dot = helloShape.querySelector('.hello-status-dot');
-    if (dot) {
-      dot.classList.toggle('active', !isFree);
-      dot.classList.toggle('avail', isFree);
-    }
   }
 
   const tvLed = element.querySelector('.tv-led');
@@ -985,11 +951,19 @@ export function delField(devId, roomId, index) {
   }
 }
 
-export function setField(devId, index, key, value) {
+/** Deletes an already-saved custom field (saved fields used to be
+ *  append-only — once merged into savedFields there was no way to ever
+ *  remove one). Persists immediately; no dirty/save step. */
+export function delSavedField(devId, roomId, index) {
   const stateEntry = getDeviceState(devId);
-  if (!stateEntry.customFields[index]) return;
-  stateEntry.customFields[index][key] = value;
-  markPanelDirty(devId);
+  if (!Array.isArray(stateEntry.savedFields) || !stateEntry.savedFields[index]) return;
+  stateEntry.savedFields.splice(index, 1);
+  const room = rooms.find(room => room.id === roomId);
+  if (room) {
+    const device = room.devices.find(device => device.id === devId);
+    if (device) buildPanel(device, room);
+  }
+  try { saveDeviceState(devId); } catch (e) { /* ignore */ }
 }
 
 export function updateDeviceStatus(devId, roomId, status) {
@@ -1005,8 +979,9 @@ export function updateDeviceStatus(devId, roomId, status) {
   else if (!st.employee) st.employee = getAuthSession()?.username || '';
   if (st.status !== STATUS.NOT_AVAILABLE) st.notAvailableReason = '';
   // Drives both the "since HH:MM" display and the midnight auto-expiry sweep
-  // (see startDeviceStatusExpiry() in data.js).
-  if (st.status !== prevStatus) st.since = Date.now();
+  // (see startDeviceStatusExpiry() in data.js). Server-corrected clock, so
+  // a wrong local clock can't produce a future/past stamp.
+  if (st.status !== prevStatus) st.since = serverNow();
   const room = rooms.find(room => room.id === roomId);
   const device = room && room.devices.find(device => device.id === devId);
   if (state.currentRoom && state.currentRoom.id === roomId) {
@@ -1034,6 +1009,12 @@ export function commitDeviceStatus(devId, roomId, status) {
   updateDeviceStatus(devId, roomId, status);
   clearPanelDirty(devId);
   try { saveDeviceState(devId); } catch (e) { /* ignore */ }
+  // If this device's panel happens to be open, its "last saved" baseline
+  // just moved — refresh the snapshot so a later Save/close compares
+  // against what was actually persisted here.
+  if (panelOpenedStatus.has(devId)) {
+    panelOpenedStatus.set(devId, JSON.parse(JSON.stringify(st)));
+  }
   if (device && st.status !== prevStatus) announceStatusChange(device, room, st.status);
 }
 
@@ -1060,7 +1041,27 @@ export function rebuildPanelForDevice(devId, roomId) {
 export function closePanel() {
   const panelBg = document.getElementById('panelBg');
   if (panelBg) panelBg.classList.remove('open');
-  if (activePanelDeviceId) panelOpenedStatus.delete(activePanelDeviceId);
+  if (activePanelDeviceId) {
+    const devId = activePanelDeviceId;
+    const snapshot = panelOpenedStatus.get(devId);
+    // Closing without saving: roll back the dropdown's live preview (and any
+    // other unsaved panel edits) to the last-saved values, otherwise the
+    // tiles keep showing a status that never reached the server and a later
+    // remote sync would silently "revert" it in front of the user.
+    if (snapshot && dirtyPanels.has(devId)) {
+      const st = getDeviceState(devId);
+      st.status = snapshot.status;
+      st.inUse = snapshot.inUse;
+      st.employee = snapshot.employee;
+      st.notAvailableReason = snapshot.notAvailableReason;
+      st.since = snapshot.since;
+      st.customFields = [];
+      clearPanelDirty(devId);
+      if (state.currentRoom) render();
+      else refreshDeviceVisual(devId);
+    }
+    panelOpenedStatus.delete(devId);
+  }
   activePanelDeviceId = null;
   updateSelectedDeviceVisual();
 }
