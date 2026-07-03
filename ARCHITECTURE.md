@@ -275,6 +275,21 @@ would need rethinking if this ever handled anything actually sensitive or advers
     status that never reached the server). Failed Firebase writes surface as error toasts
     via `setSyncErrorHandler()` — don't remove that wiring when touching `initApp()`.
 
+## Daily auto-refresh (getting deploys to open tabs)
+
+Hosting is served `no-cache`, but a tab that's *already open* keeps running
+the JS it loaded until it reloads — so a fresh deploy doesn't reach someone
+who never closes the app. To fix that, every open tab reloads itself once a
+day at **10:00 Kosovo time** (`Europe/Belgrade`), scheduled in
+`interaction.js` (`scheduleDailyRefresh()`), with the time-of-day derived
+from `serverNow()` so a wrong local clock can't fire it early/late. If the
+user is mid-action when 10:00 hits — dragging a device, typing in a field,
+or a modal/panel is open (`isSafeToReload()`) — the tab does **not** reload
+out from under them; it shows the "Updates are ready — please refresh" bar
+(`#refreshBar` in `index.html`) and then reloads automatically the moment
+they go idle. The bar's "Refresh now" button (`do-refresh`) just calls
+`location.reload()`. To change the time, edit `DAILY_REFRESH_HOUR`.
+
 ## Deploying changes
 
 No CI/CD — deploys are manual via the Firebase CLI:

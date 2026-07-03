@@ -35,6 +35,7 @@ import {
   getUnreadNotificationCount,
   markNotificationsSeen as persistNotificationsSeen,
   setSyncErrorHandler,
+  serverNow,
 } from './hospital_room_monitor_v9.data.js';
 import {
   render,
@@ -997,6 +998,7 @@ const actionHandlers = {
   'confirm-action': () => runConfirm(),
   'add-note': (target, event) => addNote(target, event),
   'delete-note': target => deleteNote(target),
+  'do-refresh': () => location.reload(),
 };
 
 function initSearchFilters() {
@@ -1097,6 +1099,71 @@ function stopLiveSync() {
   if (_unsubscribeDeviceExpiry) { _unsubscribeDeviceExpiry(); _unsubscribeDeviceExpiry = null; }
 }
 
+// ── daily auto-refresh so deployed changes reach open tabs ──────────
+// The site is served no-cache, but an already-open tab keeps running the
+// JS it loaded until it reloads. So once a day at 10:00 Kosovo time
+// (Europe/Belgrade) every open tab reloads itself to pick up whatever's
+// currently deployed. If the user is mid-action (dragging a device,
+// typing in a field, or a modal/panel is open) we do NOT yank the page
+// out from under them — we show a "please refresh" bar instead and reload
+// automatically the moment they're idle. The time-of-day is derived from
+// serverNow() (server-corrected clock), so a wrong local clock can't make
+// it fire at the wrong moment.
+const DAILY_REFRESH_HOUR = 10; // 10:00, Europe/Belgrade (Kosovo time)
+const REFRESH_TIMEZONE = 'Europe/Belgrade';
+let _dailyRefreshTimer = null;
+let _refreshIdleTimer = null;
+
+function belgradeSecondsSinceMidnight(epochMs) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: REFRESH_TIMEZONE, hourCycle: 'h23',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(epochMs));
+  const get = t => Number(parts.find(p => p.type === t)?.value || 0);
+  let h = get('hour');
+  if (h === 24) h = 0; // some engines report midnight as 24
+  return h * 3600 + get('minute') * 60 + get('second');
+}
+
+function msUntilNextRefresh() {
+  const cur = belgradeSecondsSinceMidnight(serverNow());
+  let deltaSec = DAILY_REFRESH_HOUR * 3600 - cur;
+  if (deltaSec <= 0) deltaSec += 24 * 3600; // already past 10:00 today → tomorrow
+  return deltaSec * 1000;
+}
+
+// Don't reload out from under someone who's actively working.
+function isSafeToReload() {
+  if (document.querySelector('.dragging')) return false;
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return false;
+  if (document.querySelector('.modal-bg.open, .panel-bg.open')) return false;
+  return true;
+}
+
+function showRefreshBar() {
+  const bar = document.getElementById('refreshBar');
+  if (bar) bar.hidden = false;
+}
+
+function triggerDailyRefresh() {
+  if (isSafeToReload()) { location.reload(); return; }
+  // Busy — surface the prompt and keep watching; reload as soon as idle.
+  showRefreshBar();
+  if (_refreshIdleTimer) return;
+  _refreshIdleTimer = setInterval(() => {
+    if (isSafeToReload()) { clearInterval(_refreshIdleTimer); location.reload(); }
+  }, 60 * 1000);
+}
+
+function scheduleDailyRefresh() {
+  if (_dailyRefreshTimer) clearTimeout(_dailyRefreshTimer);
+  _dailyRefreshTimer = setTimeout(() => {
+    triggerDailyRefresh();
+    scheduleDailyRefresh(); // line up tomorrow's tick (reload may be deferred)
+  }, msUntilNextRefresh());
+}
+
 let _appInitialized = false;
 
 export function initApp() {
@@ -1107,6 +1174,10 @@ export function initApp() {
   // Surface failed Firebase writes as error toasts — before this they died
   // silently in the console while the UI claimed the save succeeded.
   setSyncErrorHandler(message => showToast(message, 'error'));
+
+  // Reload each open tab daily at 10:00 Kosovo time so deployed updates
+  // reach people who leave the app open.
+  scheduleDailyRefresh();
 
   document.addEventListener('input', event => {
     const target = event.target;

@@ -212,6 +212,12 @@
 
 <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
+<!-- shown when the daily auto-refresh is due but the user is mid-action -->
+<div class="refresh-bar" id="refreshBar" role="alert" hidden>
+  <span class="refresh-bar-msg">Updates are ready — please refresh to get the latest version.</span>
+  <button class="refresh-bar-btn" data-action="do-refresh" type="button">Refresh now</button>
+</div>
+
 <script type="module" src="hospital_room_monitor_v9.js"></script>
 </body>
 </html>
