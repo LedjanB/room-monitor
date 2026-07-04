@@ -502,6 +502,18 @@ input:checked+.toggle-slider:before{transform:translateX(18px);background:var(--
 .dev-quick-toggle.inuse{background:var(--red);}
 .dev-quick-toggle.notavail{background:var(--orange);}
 .dev-quick-toggle:hover{transform:scale(1.15);}
+/* Colorblind support: every status toggle carries a symbol, not just a
+   color — ✓ free, – in use (busy), ✕ not available. */
+.dev-quick-toggle,.list-quick-toggle,.sr-quick-toggle{display:flex;align-items:center;justify-content:center;color:#fff;}
+.dev-quick-toggle::after,.list-quick-toggle::after,.sr-quick-toggle::after{font-size:9px;font-weight:900;line-height:1;font-family:inherit;}
+.list-quick-toggle::after,.sr-quick-toggle::after{font-size:12px;}
+.dev-quick-toggle.avail::after,.list-quick-toggle.avail::after,.sr-quick-toggle.avail::after{content:'✓';}
+.dev-quick-toggle.inuse::after,.list-quick-toggle.inuse::after,.sr-quick-toggle.inuse::after{content:'–';}
+.dev-quick-toggle.notavail::after,.list-quick-toggle.notavail::after,.sr-quick-toggle.notavail::after{content:'✕';}
+/* And the small indicator dots are shape-coded too: circle = free,
+   square = in use, diamond = not available. */
+.rstatus-dot.inuse,.dev-status-dot.inuse{border-radius:2px;}
+.rstatus-dot.notavail,.dev-status-dot.notavail{border-radius:2px;transform:rotate(45deg);}
 
 /* viewer lock indicator */
 .viewer-lock{display:none;position:absolute;inset:0;z-index:5;cursor:default;pointer-events:none;}
