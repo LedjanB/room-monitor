@@ -1086,19 +1086,6 @@ body{
 .dev-list-item.clickable{cursor:pointer;margin:0 -8px;padding:7px 8px;border-radius:8px;transition:background .12s;}
 .dev-list-item.clickable:hover{background:var(--bg);}
 .dev-list-item.clickable:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
-.dev-list-right{display:flex;align-items:center;gap:9px;flex-shrink:0;}
-.list-quick-toggle,.sr-quick-toggle{
-  width:22px;height:22px;border-radius:50%;border:2px solid #fff;
-  box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;padding:0;flex-shrink:0;
-  transition:transform .1s;
-}
-.list-quick-toggle:hover,.sr-quick-toggle:hover{transform:scale(1.12);}
-.list-quick-toggle.avail,.sr-quick-toggle.avail{background:var(--green);}
-.list-quick-toggle.inuse,.sr-quick-toggle.inuse{background:var(--red);}
-.list-quick-toggle.notavail,.sr-quick-toggle.notavail{background:var(--orange);}
-.sr-item{position:relative;padding-right:48px;}
-.sr-quick-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);}
-.sr-quick-toggle:hover{transform:translateY(-50%) scale(1.12);}
 
 /* ── Password show/hide ──────────────────────────────────────────── */
 .pw-wrap{position:relative;}
