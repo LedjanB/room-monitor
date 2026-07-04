@@ -34,3 +34,12 @@ Past changes:
 - Added a daily auto-refresh: open tabs reload at 10:00 Kosovo time to pick up new deploys,
   with a "please refresh" bar as a fallback if you're mid-action.
 - Cleanup: removed dead code and the unused node_modules/firebase dependency.
+- New-deploy detection: open tabs notice a deploy (version.json marker) and show the
+  "please refresh" bar — checked when the tab returns to view, cheap on the free tier.
+- Made the whole UI responsive for phones/tablets (wrapping header, search bottom sheet,
+  taller room canvas with tappable devices, full-width panel).
+- Device lists are now tappable with inline status toggles (room sidebar + search results);
+  fixed the results panel not scrolling for long lists.
+- Per-floor "X Free · Y In Use" summary in the corridor header.
+- Colorblind-safe status: symbols on toggles (✓/–/✕) and shape-coded dots.
+- Polish: Esc closes overlays, password Show/Hide, "connection lost" indicator.
