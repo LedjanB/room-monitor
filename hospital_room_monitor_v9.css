@@ -1074,3 +1074,92 @@ body{
 .refresh-bar-btn{font-family:inherit;font-size:12px;font-weight:800;background:#1a6bff;color:#fff;border:none;border-radius:7px;padding:6px 14px;cursor:pointer;transition:background .12s;}
 .refresh-bar-btn:hover{background:#1558d6;}
 @keyframes refreshBarIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE — tablets & phones
+   The desktop layout assumes one wide header row and a two-column
+   corridor sitting beside a fixed-width sidebar. These rules reflow it
+   for narrow screens without changing any markup: the header wraps and
+   the search drops to its own row (then a bottom sheet on phones), the
+   floor plan and room view tighten their gutters, the sidebar stacks,
+   and the detail panel goes full-width. The corridor's left/right-of-a-
+   hallway metaphor is preserved at every size — only the gutter shrinks.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* — Tablet / large phone — */
+@media (max-width: 900px){
+  html, body{overflow-x:hidden;} /* no sideways scroll from a stray wide child */
+  .hdr{height:auto;min-height:52px;flex-wrap:wrap;padding:8px 16px;gap:8px 10px;}
+  .hdr-right{flex-wrap:wrap;justify-content:flex-end;gap:8px;}
+  .hdr-search input{width:150px;}
+  .corridor-wrap{padding:20px 16px;}
+  .room-wrap{padding:0 16px 20px;}
+  .breadcrumb{padding:10px 16px;}
+  .corridor-top{flex-wrap:wrap;gap:12px;}
+  .corridor-actions{flex-wrap:wrap;}
+  .room-canvas-hdr{flex-direction:column;gap:12px;}
+  .room-canvas-actions{justify-content:flex-start;}
+}
+
+/* — Phone — */
+@media (max-width: 600px){
+  /* Header: search takes its own full-width row above the buttons; drop
+     the informational room/device count pills (the same numbers already
+     show in the corridor subheader and the room's Info card). */
+  .hdr{padding:8px 12px;}
+  .hdr-pill{display:none;}
+  .hdr-title{font-size:12px;}
+  .hdr-right{width:100%;gap:6px;}
+  .hdr-search-wrap{flex:1 1 100%;order:-1;}
+  .hdr-search{width:100%;}
+  .hdr-search input{width:100%;flex:1;}
+  .hdr-username{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* Search results become a bottom sheet — decoupled from the now
+     variable-height header, so they can never hide behind it. */
+  .search-results{
+    top:auto;bottom:0;left:0;right:0;width:auto;
+    border-radius:14px 14px 0 0;border-width:2px 0 0 0;
+    max-height:78vh;overflow-y:auto;
+    box-shadow:0 -8px 32px rgba(0,0,0,.22);
+  }
+
+  /* Floor plan: keep the two-column corridor, just tighten the gutter. */
+  .corridor-wrap{padding:16px 10px;}
+  .corridor-label{font-size:17px;}
+  .floor-row{grid-template-columns:1fr 26px 1fr;}
+  .room-cell{padding:6px 5px;}
+  .room-btn{padding:11px 12px;min-height:74px;}
+  .empty-cell{min-height:74px;}
+  .rname{font-size:14px;}
+  .rstatus-pill{font-size:9px;padding:2px 5px;}
+
+  /* Room view. */
+  .room-wrap{padding:0 10px 16px;}
+  .breadcrumb{padding:9px 12px;}
+  .room-title{font-size:19px;}
+  .room-sidebar{grid-template-columns:1fr;}
+
+  /* Detail panel fills the screen. */
+  .panel{width:100vw;}
+
+  /* Modals: comfortable margins, and let the button row wrap. */
+  .modal{max-width:calc(100vw - 24px);}
+  .modal-footer{flex-wrap:wrap;}
+
+  /* Refresh bar spans the width instead of floating centered. */
+  .refresh-bar{left:10px;right:10px;bottom:10px;transform:none;animation:none;white-space:normal;justify-content:space-between;gap:10px;}
+  .refresh-bar-btn{flex-shrink:0;}
+
+  /* Login card breathes a bit less on small screens. */
+  .auth-card{padding:28px 22px 24px;}
+}
+
+/* — Small phone — */
+@media (max-width: 400px){
+  .hdr-role-chip{display:none;}
+  .floor-row{grid-template-columns:1fr 18px 1fr;}
+  .room-cell{padding:5px 4px;}
+  .room-btn{padding:9px 10px;}
+  .rdevs{font-size:11px;}
+}

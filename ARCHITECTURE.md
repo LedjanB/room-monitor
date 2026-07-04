@@ -41,7 +41,7 @@ around a room canvas); everyone else can update status and leave notes.
 | `hospital_room_monitor_v9.data.js` | App state: floors/rooms/devices/positions, load/save, real-time sync, the notification/activity log. |
 | `hospital_room_monitor_v9.render.js` | All HTML generation (`render()`, `renderRoom()`, `buildPanel()`, etc.) and drag-to-reposition logic. |
 | `hospital_room_monitor_v9.interaction.js` | Event wiring (one delegated click/input/change listener on `document`), all the button/modal actions, toast notifications. |
-| `hospital_room_monitor_v9.css` | All styling. |
+| `hospital_room_monitor_v9.css` | All styling, including the responsive layer (see below). |
 | `firebase.json` | Hosting config (serves the repo root, ignores `node_modules`/`package.json`/etc.) + `no-cache` headers on everything, and points at `database.rules.json` for RTDB rules. |
 | `database.rules.json` | Realtime Database security rules (see Security section). |
 | `.firebaserc` | Points the Firebase CLI at the `room-monitor-6902b` project. |
@@ -294,6 +294,31 @@ out from under them; it shows the "Updates are ready — please refresh" bar
 (`#refreshBar` in `index.html`) and then reloads automatically the moment
 they go idle. The bar's "Refresh now" button (`do-refresh`) just calls
 `location.reload()`. To change the time, edit `DAILY_REFRESH_HOUR`.
+
+## Responsive layout
+
+The desktop design is a single wide header row plus a two-column corridor next to a
+fixed-width sidebar; on phones/tablets that overflowed sideways. A responsive layer at the
+end of `hospital_room_monitor_v9.css` (breakpoints at 900 / 600 / 400 px, on top of the
+pre-existing 980 px one for the room view) reflows it **without any markup changes** —
+render.js still emits the same DOM:
+
+- **Header** wraps instead of overflowing. On phones the search moves to its own full-width
+  row (`order:-1`), the informational ROOMS/DEVICES count pills are hidden (the same numbers
+  appear in the corridor subheader and room Info card), the username truncates, and the role
+  chip drops on very small screens.
+- **Search results** become a bottom sheet on phones (`top:auto;bottom:0`, full width),
+  decoupled from the now variable-height header so they can't hide behind it.
+- **Corridor** keeps its left/right-of-a-hallway metaphor at every size — only the gutter
+  (`.floor-row` middle column) and paddings shrink.
+- **Room view** stacks the sidebar below the canvas (single column on phones); the **detail
+  panel** goes full-width (`100vw`).
+- `overflow-x:hidden` on `html,body` under 900 px is a safety net against any stray wide
+  child forcing sideways scroll.
+
+If you add a new header control or a new top-level view, re-check it at 375 px — the harness
+approach used to verify this (a static HTML file mirroring render.js's markup, screenshotted
+at several widths) is the quickest way.
 
 ## Deploying changes
 
