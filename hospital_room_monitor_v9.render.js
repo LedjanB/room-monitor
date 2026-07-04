@@ -431,11 +431,27 @@ export function renderCorridor() {
     <button class="btn-sm ghost" data-action="add-room">+ Add Room</button>
   </div>` : '';
 
+  // Floor-wide status totals — the "what's free right now" answer a status
+  // board exists for, without opening Free Now and counting rows.
+  const totals = floorRooms.reduce((acc, room) => {
+    const counts = getRoomStatusCounts(room);
+    acc.free += counts.free || 0;
+    acc.inuse += counts.inuse || 0;
+    acc.not_available += counts.not_available || 0;
+    return acc;
+  }, { free: 0, inuse: 0, not_available: 0 });
+  const floorSummary = `<div class="floor-status-summary">
+    <span class="rstatus-pill avail">${totals.free} Free</span>
+    <span class="rstatus-pill inuse">${totals.inuse} In Use</span>
+    ${totals.not_available ? `<span class="rstatus-pill notavail">${totals.not_available} Not Available</span>` : ''}
+  </div>`;
+
   return `<div class="corridor-wrap">
     <div class="corridor-top">
       <div class="corridor-label-group">
         <div class="corridor-label">${esc(currentFloor.name)}</div>
         <div class="corridor-sub">${floorRooms.length} rooms · ${floorRooms.reduce((total, room) => total + room.devices.length, 0)} devices</div>
+        ${floorSummary}
       </div>
       <div class="corridor-actions">
         ${adminActions}

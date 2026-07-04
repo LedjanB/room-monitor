@@ -180,6 +180,8 @@ body:not(.dragging-room) .empty-cell span{display:none;}
 .rstatus-pill.inuse{color:var(--red);}
 .rstatus-pill.notavail{color:var(--orange);}
 .floor-manage-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.floor-status-summary{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
+.floor-status-summary .rstatus-pill{font-size:11px;padding:4px 9px;}
 
 /* room sign indicator on room btn */
 .room-sign-indicator{display:none;}
