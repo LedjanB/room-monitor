@@ -332,11 +332,18 @@ export function handleSearch(value) {
 
   list.innerHTML = `<div class="sr-count">${results.length} result${results.length === 1 ? '' : 's'}</div>` + results.map(({ device, room, floor, meta, st }) => {
     const since = meta.key !== STATUS.FREE && st.since ? `<span class="sr-since">${esc(formatSinceLabel(st.since))}</span>` : '';
+    // Beds have no status, so no toggle; every other row gets one so a
+    // status can be flipped straight from the results list (e.g. claim a
+    // free Hello without leaving Free Now).
+    const toggle = (device.type !== 'bed' && canUpdateStatus())
+      ? `<button class="sr-quick-toggle ${meta.className}" data-action="cycle-status" data-device-id="${device.id}" data-room="${room.id}" title="Cycle status (currently ${esc(meta.label)})" aria-label="Cycle status of ${esc(device.label)}, currently ${esc(meta.label)}"></button>`
+      : '';
     return `<div class="sr-item" data-action="goto-device" data-device-id="${device.id}" data-room="${room.id}">
       <span class="sr-sn">${esc(device.sn || device.label)}</span>
       <span class="sr-meta">${esc(device.label)} · ${esc(room.name)} · ${floor ? esc(floor.name) : ''} · ${typeLabel[device.type]}</span>
       <span class="sr-status ${meta.className}">${esc(meta.label)}</span>
       ${since}
+      ${toggle}
     </div>`;
   }).join('');
 }
@@ -456,16 +463,22 @@ export function renderRoom(room) {
     `<div class="srow"><span class="srow-k">${typeLabel[type]}</span><span class="srow-v">${count}</span></div>`
   ).join('');
 
+  // Each row is tappable (opens the device panel) and carries its own
+  // quick status toggle — on a phone this beats hunting for a small tile
+  // on the canvas, which was the single most awkward interaction.
   const deviceListItems = room.devices.filter(device => device.type !== 'bed').map(device => {
     const meta = getStatusMeta(device.id);
-    return `<div class="dev-list-item">
+    return `<div class="dev-list-item clickable" data-action="goto-device" data-device-id="${device.id}" data-room="${room.id}" role="button" tabindex="0" title="Open ${esc(device.label)}">
       <div>
         <div class="dev-list-name">${esc(device.label)}</div>
         <div class="dev-list-type">${typeLabel[device.type]} · ${esc(device.sn || '')}</div>
       </div>
-      <div class="dev-status-inline" title="${esc(meta.label)}">
-        <div class="dev-status-dot ${meta.className}"></div>
-        <div class="dev-status-text">${esc(meta.shortLabel)}</div>
+      <div class="dev-list-right">
+        <div class="dev-status-inline" title="${esc(meta.label)}">
+          <div class="dev-status-dot ${meta.className}"></div>
+          <div class="dev-status-text">${esc(meta.shortLabel)}</div>
+        </div>
+        ${canUpdateStatus() ? `<button class="list-quick-toggle ${meta.className}" data-action="cycle-status" data-device-id="${device.id}" data-room="${room.id}" title="Cycle status (currently ${esc(meta.label)})" aria-label="Cycle status of ${esc(device.label)}, currently ${esc(meta.label)}"></button>` : ''}
       </div>
     </div>`;
   }).join('');

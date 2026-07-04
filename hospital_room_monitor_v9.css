@@ -1075,6 +1075,24 @@ body{
 /* ── Saved custom-field delete (in the device panel) ─────────────── */
 .pkv-del{width:24px;height:24px;font-size:14px;line-height:1;margin-left:8px;}
 
+/* ── Tappable device lists (room sidebar + search results) ───────── */
+.dev-list-item.clickable{cursor:pointer;margin:0 -8px;padding:7px 8px;border-radius:8px;transition:background .12s;}
+.dev-list-item.clickable:hover{background:var(--bg);}
+.dev-list-item.clickable:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+.dev-list-right{display:flex;align-items:center;gap:9px;flex-shrink:0;}
+.list-quick-toggle,.sr-quick-toggle{
+  width:22px;height:22px;border-radius:50%;border:2px solid #fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;padding:0;flex-shrink:0;
+  transition:transform .1s;
+}
+.list-quick-toggle:hover,.sr-quick-toggle:hover{transform:scale(1.12);}
+.list-quick-toggle.avail,.sr-quick-toggle.avail{background:var(--green);}
+.list-quick-toggle.inuse,.sr-quick-toggle.inuse{background:var(--red);}
+.list-quick-toggle.notavail,.sr-quick-toggle.notavail{background:var(--orange);}
+.sr-item{position:relative;padding-right:48px;}
+.sr-quick-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);}
+.sr-quick-toggle:hover{transform:translateY(-50%) scale(1.12);}
+
 /* ── Please-refresh bar (daily auto-refresh fallback) ────────────── */
 .refresh-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:900;display:flex;align-items:center;gap:14px;background:var(--text);color:#fff;border-radius:12px;padding:11px 14px 11px 18px;box-shadow:0 8px 32px rgba(0,0,0,.28);white-space:nowrap;animation:refreshBarIn .2s ease-out;}
 .refresh-bar[hidden]{display:none !important;}

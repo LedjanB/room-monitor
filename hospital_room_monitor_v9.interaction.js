@@ -814,6 +814,13 @@ function cycleDeviceStatus(devId, roomId) {
   const current = getDeviceState(devId).status;
   const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(current) + 1) % STATUS_CYCLE.length];
   commitDeviceStatus(devId, roomId, next); // persists + announces, unlike updateDeviceStatus()
+  // The search-results dropdown lives outside #app, so render() doesn't
+  // touch it — if it's open (cycling from a results row), rebuild it so
+  // the row's status pill and toggle reflect the change immediately.
+  const sr = document.getElementById('searchResults');
+  if (sr?.classList.contains('open')) {
+    handleSearch(document.getElementById('snSearchInput')?.value || '');
+  }
   const label = next === STATUS.FREE ? 'free to use' : next === STATUS.IN_USE ? 'in use' : 'not available';
   showToast(`Device marked as ${label}.`);
 }
