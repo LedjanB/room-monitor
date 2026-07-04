@@ -1140,12 +1140,24 @@ body{
   .room-title{font-size:19px;}
   .room-sidebar{grid-template-columns:1fr;}
 
+  /* Room canvas: the fixed 68% landscape ratio collapses to a cramped
+     strip on a phone-width canvas (devices ~25x12px, unreadable). Make it
+     much taller so the same %-positioned devices scale up to a size you
+     can actually see and tap — the spatial left/right/top/bottom layout is
+     preserved, just given more vertical room. */
+  .room-area{padding-bottom:110%;}
+  /* Bigger status quick-toggle so it's a real touch target, not a 16px dot. */
+  .dev-quick-toggle{width:22px;height:22px;left:-8px;bottom:-8px;}
+
   /* Detail panel fills the screen. */
   .panel{width:100vw;}
 
   /* Modals: comfortable margins, and let the button row wrap. */
   .modal{max-width:calc(100vw - 24px);}
   .modal-footer{flex-wrap:wrap;}
+
+  /* Toasts span the width with even margins instead of hugging the edge. */
+  .toast-stack{left:10px;right:10px;max-width:none;}
 
   /* Refresh bar spans the width instead of floating centered. */
   .refresh-bar{left:10px;right:10px;bottom:10px;transform:none;animation:none;white-space:normal;justify-content:space-between;gap:10px;}

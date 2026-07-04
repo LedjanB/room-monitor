@@ -312,7 +312,11 @@ render.js still emits the same DOM:
 - **Corridor** keeps its left/right-of-a-hallway metaphor at every size — only the gutter
   (`.floor-row` middle column) and paddings shrink.
 - **Room view** stacks the sidebar below the canvas (single column on phones); the **detail
-  panel** goes full-width (`100vw`).
+  panel** goes full-width (`100vw`). The room canvas keeps a fixed aspect ratio; at desktop
+  width that's the natural landscape 68 %, but on a phone-width canvas 68 % collapses into a
+  cramped ~240 px strip with unreadable/untappable devices, so phones use a much taller ratio
+  (`padding-bottom:110%`) — same %-positioned devices, just scaled up to a usable size — and
+  the status quick-toggle dots grow to a real touch target.
 - `overflow-x:hidden` on `html,body` under 900 px is a safety net against any stray wide
   child forcing sideways scroll.
 
