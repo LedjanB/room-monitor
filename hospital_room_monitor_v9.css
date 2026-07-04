@@ -1107,6 +1107,17 @@ body{
 .sr-quick-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);}
 .sr-quick-toggle:hover{transform:translateY(-50%) scale(1.12);}
 
+/* ── Password show/hide ──────────────────────────────────────────── */
+.pw-wrap{position:relative;}
+.pw-wrap .field-input{padding-right:58px;}
+.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-family:inherit;font-size:11px;font-weight:800;letter-spacing:.03em;background:none;border:none;color:var(--text3);cursor:pointer;padding:4px 6px;border-radius:5px;}
+.pw-toggle:hover{color:var(--text);background:var(--bg2);}
+
+/* ── Connection-lost chip ────────────────────────────────────────── */
+.conn-chip{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:950;background:var(--warning-bg);color:var(--warning);border:1.5px solid var(--warning-border);border-radius:999px;padding:8px 16px;font-size:12px;font-weight:800;box-shadow:0 6px 24px rgba(0,0,0,.18);white-space:nowrap;}
+.conn-chip[hidden]{display:none !important;}
+@media (max-width:600px){.conn-chip{left:10px;right:10px;transform:none;white-space:normal;text-align:center;}}
+
 /* ── Please-refresh bar (daily auto-refresh fallback) ────────────── */
 .refresh-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:900;display:flex;align-items:center;gap:14px;background:var(--text);color:#fff;border-radius:12px;padding:11px 14px 11px 18px;box-shadow:0 8px 32px rgba(0,0,0,.28);white-space:nowrap;animation:refreshBarIn .2s ease-out;}
 .refresh-bar[hidden]{display:none !important;}

@@ -35,6 +35,7 @@ import {
   getUnreadNotificationCount,
   markNotificationsSeen as persistNotificationsSeen,
   setSyncErrorHandler,
+  setConnectionHandler,
   serverNow,
 } from './hospital_room_monitor_v9.data.js';
 import {
@@ -1006,6 +1007,13 @@ const actionHandlers = {
   'add-note': (target, event) => addNote(target, event),
   'delete-note': target => deleteNote(target),
   'do-refresh': () => location.reload(),
+  'toggle-password': target => {
+    const input = document.getElementById(target.dataset.target);
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    target.textContent = show ? 'Hide' : 'Show';
+  },
 };
 
 function initSearchFilters() {
@@ -1230,6 +1238,27 @@ export function initApp() {
   // silently in the console while the UI claimed the save succeeded.
   setSyncErrorHandler(message => showToast(message, 'error'));
 
+  // Persistent "reconnecting" chip while the Firebase connection is down.
+  // Only after we've been connected once (the flag always starts false
+  // during startup — that's not an outage), and only if the drop lasts a
+  // few seconds (brief blips self-heal without deserving a banner).
+  let wasConnected = false;
+  let offlineTimer = null;
+  setConnectionHandler(connected => {
+    const chip = document.getElementById('connChip');
+    if (!chip) return;
+    if (connected) {
+      wasConnected = true;
+      if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null; }
+      chip.hidden = true;
+    } else if (wasConnected && !offlineTimer) {
+      offlineTimer = setTimeout(() => {
+        offlineTimer = null;
+        chip.hidden = false;
+      }, 4000);
+    }
+  });
+
   // Reload each open tab daily at 10:00 Kosovo time so deployed updates
   // reach people who leave the app open.
   scheduleDailyRefresh();
@@ -1303,8 +1332,17 @@ export function initApp() {
 
   document.addEventListener('keydown', event => {
     const target = event.target;
-    if (target?.id === 'snSearchInput' && event.key === 'Escape') {
-      clearSearch();
+    // Escape closes whatever is topmost: confirm dialog, then any open
+    // modal, then the search dropdown, then the device panel.
+    if (event.key === 'Escape') {
+      const confirmModal = document.getElementById('confirmModal');
+      if (confirmModal?.classList.contains('open')) { closeConfirm(); return; }
+      const openModalBg = document.querySelector('.modal-bg.open');
+      if (openModalBg?.id) { closeModal(openModalBg.id); return; }
+      const sr = document.getElementById('searchResults');
+      if (sr?.classList.contains('open')) { clearSearch(); return; }
+      const panelBg = document.getElementById('panelBg');
+      if (panelBg?.classList.contains('open')) { closePanel(); return; }
       return;
     }
     // Submit login / setup forms on Enter

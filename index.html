@@ -212,6 +212,9 @@
 
 <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
+<!-- shown while the Firebase connection is down (changes aren't syncing) -->
+<div class="conn-chip" id="connChip" role="status" hidden>⚠ Connection lost — reconnecting… changes may not sync</div>
+
 <!-- shown when the daily auto-refresh is due but the user is mid-action -->
 <div class="refresh-bar" id="refreshBar" role="alert" hidden>
   <span class="refresh-bar-msg">Updates are ready — please refresh to get the latest version.</span>

@@ -1118,7 +1118,10 @@ export function renderLogin(errorMsg = '') {
         </div>
         <div class="field-group">
           <label class="field-label" for="loginPass">Password</label>
-          <input class="field-input" id="loginPass" type="password" placeholder="Enter your password" autocomplete="current-password" />
+          <div class="pw-wrap">
+            <input class="field-input" id="loginPass" type="password" placeholder="Enter your password" autocomplete="current-password" />
+            <button class="pw-toggle" type="button" tabindex="-1" data-action="toggle-password" data-target="loginPass">Show</button>
+          </div>
         </div>
         <button class="btn-primary auth-submit-btn" data-action="do-login" type="button">Sign In</button>
       </div>
@@ -1146,11 +1149,17 @@ export function renderSetup(errorMsg = '') {
         </div>
         <div class="field-group">
           <label class="field-label" for="setupPass">Password</label>
-          <input class="field-input" id="setupPass" type="password" placeholder="Choose a password (min 6 characters)" autocomplete="new-password" />
+          <div class="pw-wrap">
+            <input class="field-input" id="setupPass" type="password" placeholder="Choose a password (min 6 characters)" autocomplete="new-password" />
+            <button class="pw-toggle" type="button" tabindex="-1" data-action="toggle-password" data-target="setupPass">Show</button>
+          </div>
         </div>
         <div class="field-group">
           <label class="field-label" for="setupPass2">Confirm Password</label>
-          <input class="field-input" id="setupPass2" type="password" placeholder="Repeat your password" autocomplete="new-password" />
+          <div class="pw-wrap">
+            <input class="field-input" id="setupPass2" type="password" placeholder="Repeat your password" autocomplete="new-password" />
+            <button class="pw-toggle" type="button" tabindex="-1" data-action="toggle-password" data-target="setupPass2">Show</button>
+          </div>
         </div>
         <button class="btn-primary auth-submit-btn" data-action="do-setup" type="button">Create Account & Sign In</button>
       </div>
@@ -1196,7 +1205,10 @@ export function renderUserMgmtContent() {
       </div>
       <div class="field-group">
         <label class="field-label">Password</label>
-        <input class="field-input" id="newUserPass" type="password" placeholder="Minimum 6 characters" />
+        <div class="pw-wrap">
+          <input class="field-input" id="newUserPass" type="password" placeholder="Minimum 6 characters" />
+          <button class="pw-toggle" type="button" tabindex="-1" data-action="toggle-password" data-target="newUserPass">Show</button>
+        </div>
       </div>
       <div class="field-group">
         <label class="field-label">Role</label>

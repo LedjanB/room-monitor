@@ -255,6 +255,17 @@ export function serverNow() {
   return Date.now() + _serverTimeOffset;
 }
 
+// ── connection state ────────────────────────────────────────────────
+// RTDB's built-in connectivity flag. The UI layer registers a handler to
+// show a persistent "reconnecting" chip — error toasts on failed writes
+// exist, but a standing indicator makes "why isn't my change showing up
+// for others?" self-explanatory while offline.
+let _connectionNotify = null;
+export function setConnectionHandler(fn) { _connectionNotify = fn; }
+onValue(ref(db, '.info/connected'), snap => {
+  if (_connectionNotify) _connectionNotify(snap.val() === true);
+}, () => { /* ignore */ });
+
 // ── save-failure reporting ──────────────────────────────────────────
 // Firebase writes are async and can fail (offline, permissions). The UI
 // layer registers a handler (a toast) so failures are visible instead of
