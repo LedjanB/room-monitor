@@ -62,12 +62,20 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
   border-radius:8px;
   padding:16px;
   display:none;
+  flex-direction:column;
   width:400px;
+  /* Cap to the viewport so a long result list (e.g. Free Now → every free
+     Hello across all floors) can't run off the bottom of the screen with
+     no way to scroll to it — the list itself scrolls, see .sr-list. */
+  max-height:calc(100vh - 72px);
   box-shadow:0 8px 32px rgba(0,0,0,.18);
 }
-.search-results.open{display:block;}
+.search-results.open{display:flex;}
 .sr-title{font-size:10px;font-weight:800;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:12px;}
-.sr-list{display:flex;flex-direction:column;gap:6px;}
+/* The scrolling region — title/filters/tools stay pinned above it, only the
+   results scroll. min-height:0 lets it shrink inside the flex column so
+   overflow-y actually engages. */
+.sr-list{display:flex;flex-direction:column;gap:6px;flex:1 1 auto;min-height:0;overflow-y:auto;}
 .sr-item{
   background:var(--bg);border:1.5px solid var(--border);border-radius:6px;
   padding:10px 14px;cursor:pointer;
@@ -1116,11 +1124,12 @@ body{
   .hdr-username{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
   /* Search results become a bottom sheet — decoupled from the now
-     variable-height header, so they can never hide behind it. */
+     variable-height header, so they can never hide behind it. Filters stay
+     pinned at the top; only .sr-list scrolls (see base rule). */
   .search-results{
     top:auto;bottom:0;left:0;right:0;width:auto;
     border-radius:14px 14px 0 0;border-width:2px 0 0 0;
-    max-height:78vh;overflow-y:auto;
+    max-height:82vh;
     box-shadow:0 -8px 32px rgba(0,0,0,.22);
   }
 
