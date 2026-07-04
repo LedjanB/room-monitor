@@ -1,2 +1,4 @@
 .firebase/
 node_modules/
+# Regenerated on every deploy by deploy.sh — a pure deploy artifact, not source.
+version.json

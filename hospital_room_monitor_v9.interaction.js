@@ -1164,6 +1164,41 @@ function scheduleDailyRefresh() {
   }, msUntilNextRefresh());
 }
 
+// ── new-deploy detection ────────────────────────────────────────────
+// The daily reload above is a backstop. This catches a deploy the moment
+// it lands: /version.json is re-stamped on every deploy (see deploy.sh),
+// so a tab that remembers the version it loaded with can poll for a change
+// and show the "please refresh" bar right away — the standard "a new
+// version is available" pattern. Doesn't force a reload (that would yank
+// the page mid-use); it just surfaces the bar and lets the user choose,
+// exactly like the busy-at-10:00 case.
+const VERSION_POLL_MS = 3 * 60 * 1000; // re-check every 3 minutes
+let _loadedVersion = null;
+
+async function fetchDeployedVersion() {
+  try {
+    // no-store + a cache-buster so we always see the freshly deployed value,
+    // never a stale cached one.
+    const res = await fetch(`/version.json?_=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.version ? String(data.version) : null;
+  } catch (e) {
+    return null; // offline / transient — try again next tick
+  }
+}
+
+async function startVersionWatch() {
+  _loadedVersion = await fetchDeployedVersion(); // baseline for this tab
+  setInterval(async () => {
+    const latest = await fetchDeployedVersion();
+    // Only prompt once we have both a baseline and a genuinely newer value.
+    if (latest && _loadedVersion && latest !== _loadedVersion) {
+      showRefreshBar();
+    }
+  }, VERSION_POLL_MS);
+}
+
 let _appInitialized = false;
 
 export function initApp() {
@@ -1178,6 +1213,8 @@ export function initApp() {
   // Reload each open tab daily at 10:00 Kosovo time so deployed updates
   // reach people who leave the app open.
   scheduleDailyRefresh();
+  // Also detect a brand-new deploy within minutes and prompt to refresh.
+  startVersionWatch();
 
   document.addEventListener('input', event => {
     const target = event.target;

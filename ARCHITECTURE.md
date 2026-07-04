@@ -280,20 +280,32 @@ would need rethinking if this ever handled anything actually sensitive or advers
     status that never reached the server). Failed Firebase writes surface as error toasts
     via `setSyncErrorHandler()` — don't remove that wiring when touching `initApp()`.
 
-## Daily auto-refresh (getting deploys to open tabs)
+## Getting deploys to open tabs (version bar + daily refresh)
 
 Hosting is served `no-cache`, but a tab that's *already open* keeps running
 the JS it loaded until it reloads — so a fresh deploy doesn't reach someone
-who never closes the app. To fix that, every open tab reloads itself once a
-day at **10:00 Kosovo time** (`Europe/Belgrade`), scheduled in
-`interaction.js` (`scheduleDailyRefresh()`), with the time-of-day derived
-from `serverNow()` so a wrong local clock can't fire it early/late. If the
-user is mid-action when 10:00 hits — dragging a device, typing in a field,
-or a modal/panel is open (`isSafeToReload()`) — the tab does **not** reload
-out from under them; it shows the "Updates are ready — please refresh" bar
-(`#refreshBar` in `index.html`) and then reloads automatically the moment
-they go idle. The bar's "Refresh now" button (`do-refresh`) just calls
-`location.reload()`. To change the time, edit `DAILY_REFRESH_HOUR`.
+who never closes the app. Two mechanisms cover this, both in `interaction.js`:
+
+**1. New-deploy detection (the "please refresh" bar).** `/version.json` holds
+a single version string that is re-stamped on every deploy (by `deploy.sh` —
+see below). On startup each tab records the version it loaded with
+(`startVersionWatch()`) and re-fetches `version.json` every 3 minutes; when
+the value changes, it shows the **"Updates are ready — please refresh"** bar
+(`#refreshBar` in `index.html`). This is the standard "a new version is
+available" pattern — it does *not* force a reload (that would yank the page
+mid-use), it just surfaces the bar; the user clicks "Refresh now"
+(`do-refresh` → `location.reload()`). Because the marker bumps on every
+deploy, it catches any change — JS, CSS, or rules — not just ones that alter
+`index.html`. The app degrades gracefully if `version.json` is missing (the
+bar simply never triggers from this path).
+
+**2. Daily reload backstop.** Independently, every open tab reloads itself
+once a day at **10:00 Kosovo time** (`Europe/Belgrade`),
+`scheduleDailyRefresh()`, with the time derived from `serverNow()` so a wrong
+local clock can't fire it early/late. If the user is mid-action at 10:00 —
+dragging, typing, or a modal/panel open (`isSafeToReload()`) — it doesn't
+reload out from under them; it shows the same bar and then reloads
+automatically once they go idle. To change the time, edit `DAILY_REFRESH_HOUR`.
 
 ## Responsive layout
 
@@ -326,13 +338,18 @@ at several widths) is the quickest way.
 
 ## Deploying changes
 
-No CI/CD — deploys are manual via the Firebase CLI:
+No CI/CD — deploys are manual. **Use `deploy.sh`** rather than calling the CLI directly:
+it stamps a fresh `version.json` first, which is what makes open tabs show the "please
+refresh" bar (see "Getting deploys to open tabs" above). Deploying without that stamp still
+ships the code, but open tabs won't notice until the daily 10:00 reload.
 
 ```
-npx firebase-tools@13 deploy --only hosting --token "$FIREBASE_TOKEN" --project room-monitor-6902b
-npx firebase-tools@13 deploy --only database --token "$FIREBASE_TOKEN" --project room-monitor-6902b
+./deploy.sh                          # stamp version.json + deploy hosting
+./deploy.sh --only database,hosting  # extra args pass through (e.g. also push RTDB rules)
 ```
 
-`$FIREBASE_TOKEN` comes from `npx firebase-tools login:ci` (interactive, one-time, run by a
-human — the CLI can't fully log in non-interactively). There's no CI pipeline; every
-deploy so far has been run by hand from this environment.
+`version.json` is a pure deploy artifact — it's git-ignored and regenerated every run, so it
+never clutters history. The script relies on a logged-in Firebase CLI (`npx firebase-tools
+login`, interactive, one-time per machine) — the cached credentials under the user's
+`configstore` are picked up automatically, so no `--token` is needed. There's no CI
+pipeline; every deploy is run by hand.
