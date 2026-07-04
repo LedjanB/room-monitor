@@ -228,13 +228,18 @@ would need rethinking if this ever handled anything actually sensitive or advers
    and read it back — the `devices` key is just gone, not `[]`. Every place that reads
    room/device data from Firebase must default missing arrays back to `[]`
    (`applyStatePayload()` in `data.js` does this now) — don't remove that normalization.
-2. **Whole-tree `/state` writes can clobber concurrent edits.** `saveState()` does a full
-   `set()` of the entire rooms/devState/positions tree, not a per-field update. Two people
-   editing at nearly the same moment, if one's local copy is stale, can overwrite the
-   other's change. This bit us once already (a room briefly lost most of its data during
-   heavy testing). Low real-world risk for a 20-person team clicking one status at a time,
-   but if data loss becomes a real complaint, the fix is moving to per-path `update()`
-   calls (e.g. `devState/<id>` written independently of `rooms`) instead of one big `set()`.
+2. **Whole-tree `/state` writes can clobber concurrent edits — but only for the paths that
+   still use them.** The high-frequency edits already write *narrow, path-scoped* subtrees:
+   a device status/employee/reason/custom-fields/device-notes change goes through
+   `saveDeviceState()` → `set(state/devState/<id>)`, and a drag goes through
+   `saveDevicePosition()` → `set(state/positions/<id>)`. Those can't clobber each other or
+   the room layout. What still does a full-tree `set()` (via `saveState()`) is the
+   *structural* stuff: add/remove/rename room or floor, reorder rooms, add/delete a device,
+   and **room** notes (they live in the `rooms` tree). Two people doing those at nearly the
+   same moment, with one's local copy stale, can still overwrite each other — this bit us
+   once (a room briefly lost most of its data during heavy testing). Low real-world risk for
+   a 20-person team, but if it becomes a real complaint the remaining fix is to move room
+   notes and structural edits onto their own scoped `update()` paths too.
 3. **Reseeding an empty `/state` must use the pristine `DEFAULT_ROOMS`/`DEFAULT_FLOORS`
    snapshot** (captured at module load, before anything can mutate it) — never the live,
    possibly `localStorage`-tainted `rooms`/`floors` arrays. Otherwise whichever browser
