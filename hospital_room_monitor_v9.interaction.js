@@ -1172,7 +1172,13 @@ function scheduleDailyRefresh() {
 // version is available" pattern. Doesn't force a reload (that would yank
 // the page mid-use); it just surfaces the bar and lets the user choose,
 // exactly like the busy-at-10:00 case.
-const VERSION_POLL_MS = 3 * 60 * 1000; // re-check every 3 minutes
+// Slow background fallback only — the responsive path is the visibility
+// check below, which fires the moment someone returns to the tab. 15 min
+// keeps a permanently-foregrounded tab (e.g. a wall display) current
+// without polling for no reason. This is a ~40-byte static Hosting file,
+// so even this is negligible, and it never touches the Realtime Database
+// free-tier quota (connections / bandwidth) at all.
+const VERSION_POLL_MS = 15 * 60 * 1000;
 let _loadedVersion = null;
 
 async function fetchDeployedVersion() {
@@ -1188,15 +1194,22 @@ async function fetchDeployedVersion() {
   }
 }
 
+async function checkForNewVersion() {
+  const latest = await fetchDeployedVersion();
+  // Only prompt once we have both a baseline and a genuinely newer value.
+  if (latest && _loadedVersion && latest !== _loadedVersion) showRefreshBar();
+}
+
 async function startVersionWatch() {
   _loadedVersion = await fetchDeployedVersion(); // baseline for this tab
-  setInterval(async () => {
-    const latest = await fetchDeployedVersion();
-    // Only prompt once we have both a baseline and a genuinely newer value.
-    if (latest && _loadedVersion && latest !== _loadedVersion) {
-      showRefreshBar();
-    }
-  }, VERSION_POLL_MS);
+  // Cheap and responsive: re-check when the user brings the tab back into
+  // view (the exact moment they'd act on the bar), which costs nothing while
+  // the tab sits in the background. The slow interval is just a fallback for
+  // a tab that stays visible for hours.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkForNewVersion();
+  });
+  setInterval(checkForNewVersion, VERSION_POLL_MS);
 }
 
 let _appInitialized = false;

@@ -289,15 +289,21 @@ who never closes the app. Two mechanisms cover this, both in `interaction.js`:
 **1. New-deploy detection (the "please refresh" bar).** `/version.json` holds
 a single version string that is re-stamped on every deploy (by `deploy.sh` —
 see below). On startup each tab records the version it loaded with
-(`startVersionWatch()`) and re-fetches `version.json` every 3 minutes; when
-the value changes, it shows the **"Updates are ready — please refresh"** bar
-(`#refreshBar` in `index.html`). This is the standard "a new version is
-available" pattern — it does *not* force a reload (that would yank the page
-mid-use), it just surfaces the bar; the user clicks "Refresh now"
-(`do-refresh` → `location.reload()`). Because the marker bumps on every
-deploy, it catches any change — JS, CSS, or rules — not just ones that alter
-`index.html`. The app degrades gracefully if `version.json` is missing (the
-bar simply never triggers from this path).
+(`startVersionWatch()`). It then re-checks `version.json` **when the tab is
+brought back into view** (`visibilitychange` → `visible`) — the moment the
+user would actually act on the bar — plus a slow **15-minute** background
+interval as a fallback for a tab that stays visible for hours (a wall
+display). When the value differs from the loaded one it shows the **"Updates
+are ready — please refresh"** bar (`#refreshBar` in `index.html`). This is
+the standard "a new version is available" pattern — it does *not* force a
+reload (that would yank the page mid-use), it just surfaces the bar; the user
+clicks "Refresh now" (`do-refresh` → `location.reload()`). Because the marker
+bumps on every deploy, it catches any change — JS, CSS, or rules — not just
+ones that alter `index.html`. The app degrades gracefully if `version.json`
+is missing (the bar simply never triggers from this path). Cost is trivial:
+`version.json` is a ~40-byte static **Hosting** file, so this never touches
+the Realtime Database free-tier quota (connections / bandwidth), and a
+backgrounded tab isn't polling at all.
 
 **2. Daily reload backstop.** Independently, every open tab reloads itself
 once a day at **10:00 Kosovo time** (`Europe/Belgrade`),
