@@ -1236,12 +1236,25 @@ body{
 .modal-bg.open{cursor:pointer;}
 .modal{cursor:default;}
 
-/* ── Toasts must never eat a click ─────────────────────────────────
-   The toast stack sits bottom-right, exactly on top of the detail
-   panel's sticky "Save Changes" bar, so a status-change toast blocked
-   the very button it was telling you to press. Nothing in a toast is
-   interactive, so it simply stops taking pointer events. */
+/* ── Toasts get out of the panel's way ─────────────────────────────
+   The stack used to sit bottom-right, which is exactly where the detail
+   panel's sticky "Save Changes" bar lives — so the "click Save Changes
+   to apply" toast covered the button it was pointing at. Moved to the
+   bottom centre of the viewport, which is clear of the right-hand panel
+   at every desktop width. pointer-events:none on top of that, so even
+   where a toast does overlap something it can never eat the click. */
+.toast-stack{
+  right:auto;
+  left:50%;
+  bottom:22px;
+  transform:translateX(-50%);
+  align-items:center;
+  text-align:center;
+}
 .toast-stack,.toast{pointer-events:none;}
+/* Sit the refresh bar above the toasts instead of on top of them —
+   both are bottom-centre now. */
+.refresh-bar{bottom:84px;}
 
 /* ── Device hit-testing on the room canvas ─────────────────────────
    Every device is an absolutely-positioned rectangle, and those
@@ -1282,23 +1295,76 @@ body{
 .device.is-selected{z-index:95;}
 .device.dragging{z-index:200;}
 
-/* ── "This is the one you picked" ──────────────────────────────────
-   Opening a device from a search result used to just show the panel,
-   leaving you to guess which tile it was — and the earlier per-status
-   box-shadow rules (all !important) painted over the selection ring.
-   An outline can't be overridden by those, and the pulse replays each
-   time you arrive from search (see updateSelectedDeviceVisual). */
-.device.is-selected{
-  outline:3px solid var(--accent);
-  outline-offset:4px;
+/* ── Hover and selection feedback ──────────────────────────────────
+   Both rings are drawn on the *shape* rather than on `.device`, because
+   `.device` is a padded bounding box that's much larger than the glyph
+   inside it (a Hello's box is roughly twice the height of the bar it
+   draws) — a ring around the box floats away from the thing you're
+   pointing at. Using `outline` rather than `box-shadow` also sidesteps
+   the per-status shadow rules further up, which all carry !important. */
+
+/* Hover: a light ring plus the device's own name, so you can tell which
+   tile you're on before committing to a click. Removing the old hover
+   transform fixed the jitter but left almost no feedback at all. */
+.device:not([data-type="bed"]):hover > .tv-outer,
+.device:not([data-type="bed"]):hover > .hello-shape,
+.device:not([data-type="bed"]):hover > .wb-shape > .wb-panel,
+.device:not([data-type="bed"]):hover > .rsign-shape > .rsign-bezel{
+  outline:2px solid rgba(47,111,237,.55);
+  outline-offset:2px;
   border-radius:8px;
 }
+
+/* Name chip. Sits *below* the tile on purpose: `.room-area` clips its
+   overflow and the Hellos/room signs sit flush against the top wall
+   (y:0), so a label above them would be cut off entirely. */
+.device:not([data-type="bed"])[data-label]::after{
+  content:attr(data-label);
+  position:absolute;
+  /* Clears the quick-status toggle, which hangs 6px below the tile. */
+  top:calc(100% + 12px);
+  left:50%;
+  transform:translateX(-50%);
+  z-index:120;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .12s ease;
+  background:rgba(20,24,21,.94);
+  color:#fff;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.04em;
+  line-height:1;
+  padding:5px 8px;
+  border-radius:6px;
+  white-space:nowrap;
+  box-shadow:0 4px 12px rgba(0,0,0,.28);
+}
+.device:not([data-type="bed"]):hover::after,
+.device:not([data-type="bed"]).is-selected::after{opacity:1;}
+.device.dragging::after{opacity:0 !important;}
+
+/* Selected: same ring, turned up — solid accent plus a soft halo, so it
+   reads as "this is the one" next to a merely-hovered neighbour rather
+   than as a hard blue box slapped around the tile. */
+.device.is-selected > .tv-outer,
+.device.is-selected > .hello-shape,
+.device.is-selected > .wb-shape > .wb-panel,
+.device.is-selected > .rsign-shape > .rsign-bezel{
+  outline:2.5px solid var(--accent);
+  outline-offset:3px;
+  border-radius:8px;
+  box-shadow:0 0 0 6px rgba(47,111,237,.14),0 10px 22px rgba(47,111,237,.20) !important;
+}
+
+/* Arriving from a search result: one brief halo so the eye lands on the
+   right tile, then it settles into the plain selected ring. */
 .device.just-revealed{
   animation:devReveal 1.1s ease-out 2;
 }
 @keyframes devReveal{
-  0%   {box-shadow:0 0 0 0 rgba(47,111,237,.55);}
-  100% {box-shadow:0 0 0 18px rgba(47,111,237,0);}
+  0%   {box-shadow:0 0 0 0 rgba(47,111,237,.5);}
+  100% {box-shadow:0 0 0 20px rgba(47,111,237,0);}
 }
 /* Lighter panel scrim so the highlighted tile stays legible behind it —
    the point of the ring is to be seen while the panel is open. */

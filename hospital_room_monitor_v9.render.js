@@ -226,6 +226,7 @@ export function deviceHTML(dev, room) {
   return `<div class="device" id="dev-${dev.id}"
     style="left:${p.x}%;top:${p.y}%;width:${displayW}%;height:${displayH}%;"
     data-device-id="${dev.id}" data-room="${room.id}" data-type="${dev.type}" data-status="${meta.key}" data-w="${displayW}" data-h="${displayH}"
+    data-label="${esc(dev.label)}"
     data-draggable="${draggable}" tabindex="0" role="button" aria-label="${esc(aria)}">
     ${delBtn}
     ${quickToggle}
