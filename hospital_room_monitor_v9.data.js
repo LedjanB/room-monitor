@@ -347,9 +347,9 @@ export function saveDevicePosition(devId) {
  *  only, deliberately never synced to Firebase. */
 export function saveLocalUIState() {
   try {
+    // Search filters are deliberately NOT persisted — see loadLocalUIState().
     localStorage.setItem(LOCAL_UI_KEY, JSON.stringify({
       currentFloorId: state.currentFloorId,
-      searchFilters: state.searchFilters,
     }));
   } catch (e) { /* ignore */ }
 }
@@ -360,14 +360,12 @@ function loadLocalUIState() {
     if (!raw) return;
     const saved = JSON.parse(raw);
     if (saved.currentFloorId) state.currentFloorId = saved.currentFloorId;
-    if (saved.searchFilters) {
-      state.searchFilters = {
-        floorId: saved.searchFilters.floorId || 'all',
-        room: saved.searchFilters.room || '',
-        type: saved.searchFilters.type || 'all',
-        status: saved.searchFilters.status || 'all',
-      };
-    }
+    // Search filters used to be restored here too, which made "Free Now"
+    // arm a permanent, invisible status=free filter: closing the results
+    // panel clears the text box but not the filters, so days later a search
+    // for an in-use device's serial silently returned "No devices found".
+    // Filters are now session-only — a reload always starts unfiltered.
+    // The floor tab genuinely is worth remembering, so it stays.
   } catch (e) { /* ignore */ }
 }
 

@@ -83,32 +83,67 @@ export function canDeleteNote(note) {
 
 const NOTE_TTL_HINT = 'Notes are removed automatically 48 hours after they are added.';
 
+// Which note is currently open in its inline editor, if any. Kept out of the
+// note data itself so it never reaches Firebase.
+let editingNoteId = null;
+
+export function setEditingNote(noteId) { editingNoteId = noteId || null; }
+export function getEditingNote() { return editingNoteId; }
+
 function noteRows(notes = [], targetType, targetId, roomId = '') {
   if (!notes.length) return '<div class="note-empty">No notes yet.</div>';
-  return `<div class="note-list">${notes.map(note => `
-    <div class="note-item">
+  return `<div class="note-list">${notes.map(note => {
+    const attrs = `data-note-target="${targetType}" data-target-id="${targetId}" data-room="${roomId}" data-note-id="${note.id}"`;
+    // Editing is gated on the same rule as deleting: your own notes, or
+    // anything if you're an admin.
+    const mayEdit = canDeleteNote(note);
+
+    if (mayEdit && note.id === editingNoteId) {
+      return `<div class="note-item editing">
+        <div class="note-body">
+          <textarea class="field-textarea note-edit-input" id="noteEdit_${note.id}">${esc(note.text || '')}</textarea>
+          <div class="note-edit-actions">
+            <button class="btn-mini" ${attrs} data-action="cancel-edit-note">Cancel</button>
+            <button class="btn-mini primary" ${attrs} data-action="save-edit-note">Save</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    return `<div class="note-item">
       <div class="note-body">
         <div class="note-text">${esc(note.text || '')}</div>
-        <div class="note-meta">${esc(note.author || 'Employee')} · ${esc(formatNoteDate(note.createdAt))}</div>
+        <div class="note-meta">${esc(note.author || 'Employee')} · ${esc(formatNoteDate(note.createdAt))}${note.editedAt ? ' · edited' : ''}</div>
       </div>
-      ${canDeleteNote(note) ? `<button class="note-del" data-action="delete-note" data-note-target="${targetType}" data-target-id="${targetId}" data-room="${roomId}" data-note-id="${note.id}" title="Delete note">×</button>` : ''}
-    </div>`).join('')}</div>`;
+      ${mayEdit ? `<div class="note-actions">
+        <button class="note-del note-edit-btn" ${attrs} data-action="edit-note" title="Edit note" aria-label="Edit note">✎</button>
+        <button class="note-del" ${attrs} data-action="delete-note" title="Delete note" aria-label="Delete note">×</button>
+      </div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function statusBadgeHTML(meta) {
   return `<div class="status-badge ${meta.className}"><div class="sbdot"></div>${esc(meta.label)}</div>`;
 }
 
+// A busy 12 hours can hold hundreds of entries; rendering all of them makes
+// opening the bell noticeably slow for a list nobody scrolls to the end of.
+const MAX_NOTIFICATIONS_SHOWN = 100;
+
 export function renderNotificationsList() {
   const items = getNotifications();
   if (!items.length) return '<div class="note-empty">No activity in the last 12 hours.</div>';
-  return `<div class="note-list">${items.map(n => `
+  const shown = items.slice(0, MAX_NOTIFICATIONS_SHOWN);
+  const trimmed = items.length - shown.length;
+  return `<div class="note-list">${shown.map(n => `
     <div class="note-item">
       <div class="note-body">
         <div class="note-text">${esc(n.message)}</div>
         <div class="note-meta">${esc(formatNoteDate(n.ts))}</div>
       </div>
-    </div>`).join('')}</div>`;
+    </div>`).join('')}</div>
+    ${trimmed > 0 ? `<div class="note-ttl-hint">Showing the ${MAX_NOTIFICATIONS_SHOWN} most recent of ${items.length} entries from the last 12 hours.</div>` : ''}`;
 }
 
 const dirtyPanels = new Set();
@@ -236,7 +271,11 @@ export function deviceHTML(dev, room) {
 
 export function renderHeader() {
   const floorRooms = rooms.filter(r => r.floorId === state.currentFloorId);
-  const tot = rooms.reduce((sum, room) => sum + (room.devices?.length || 0), 0);
+  // Both pills describe the CURRENT floor. `tot` used to sum devices across
+  // every floor while the rooms pill counted only this one, so the header
+  // read "8 ROOMS · 55 DEVICES" directly above a subheader saying
+  // "8 rooms · 48 devices".
+  const tot = floorRooms.reduce((sum, room) => sum + (room.devices?.length || 0), 0);
   const session = getAuthSession();
   const isAdm = isAdminSession();
   const roleChip = session
@@ -256,7 +295,7 @@ export function renderHeader() {
           <input type="text" placeholder="Search SN, device, room, note..." id="snSearchInput" />
         </div>
       </div>
-      <button class="hdr-quick-btn" data-action="show-free-now" type="button" title="Show every free device across all floors">Free Now</button>
+      <button class="hdr-quick-btn${state.searchFilters?.status === STATUS.FREE ? ' active' : ''}" data-action="show-free-now" type="button" title="Show every free device across all floors">Free Now</button>
       <div class="hdr-pill">${floorRooms.length} ROOMS</div>
       <div class="hdr-pill">${tot} DEVICES</div>
       ${session ? `
@@ -411,6 +450,7 @@ export function goToDevice(devId, roomId) {
 export function switchFloor(floorId) {
   state.currentFloorId = floorId;
   state.currentRoom = null;
+  editingNoteId = null;
   saveLocalUIState();
   render();
 }
@@ -452,7 +492,11 @@ export function renderCorridor() {
         ${statusSummary}
         <div class="rstatus-dots">${room.devices.filter(device => device.type !== 'bed').map(device => {
           const meta = getStatusMeta(device.id);
-          return `<div class="rstatus-dot ${meta.className}" title="${esc(device.label)}: ${esc(meta.label)}"></div>`;
+          // meta.detail is "In Use by <name>" / "Reason: …" — the question a
+          // status board gets asked most is *who*, and answering it in the
+          // tooltip saves opening the room and then the device.
+          const who = meta.detail ? ` — ${meta.detail}` : '';
+          return `<div class="rstatus-dot ${meta.className}" title="${esc(device.label)}: ${esc(meta.label)}${esc(who)}"></div>`;
         }).join('')}</div>
       </button>`;
     };
@@ -527,6 +571,7 @@ export function renderRoom(room) {
       <div>
         <div class="dev-list-name">${esc(device.label)}</div>
         <div class="dev-list-type">${typeLabel[device.type]} · ${esc(device.sn || '')}</div>
+        ${meta.detail ? `<div class="dev-list-detail">${esc(meta.detail)}</div>` : ''}
       </div>
       <div class="dev-status-inline" title="${esc(meta.label)}">
         <div class="dev-status-dot ${meta.className}"></div>
@@ -551,7 +596,6 @@ export function renderRoom(room) {
   const adminActions = isAdmin() ? `
     <button class="btn-sm ghost admin-only" data-action="edit-room" data-room="${room.id}">Edit Room</button>
     <button class="btn-sm ghost danger admin-only" data-action="delete-room" data-room="${room.id}">Delete Room</button>
-    <button class="btn-sm ghost admin-only" data-action="add-bed" data-room="${room.id}">Add Bed</button>
     <button class="btn-add-device admin-only" data-action="add-device" data-room="${room.id}">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="8" y1="2" x2="8" y2="14" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="2" y1="8" x2="14" y2="8" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
       Add Device
@@ -800,6 +844,9 @@ export function openPanel(devId, roomId) {
   buildPanel(device, room);
   const panelBg = document.getElementById('panelBg');
   if (panelBg) panelBg.classList.add('open');
+  // Lets the stylesheet move the toast stack out of the panel's way on
+  // phones, where the panel is full-width (see the responsive layer).
+  document.body.classList.add('panel-open');
   updateSelectedDeviceVisual();
 }
 
@@ -1124,6 +1171,10 @@ export function rebuildPanelForDevice(devId, roomId) {
 export function closePanel() {
   const panelBg = document.getElementById('panelBg');
   if (panelBg) panelBg.classList.remove('open');
+  document.body.classList.remove('panel-open');
+  // An open note editor is scoped to the panel/room it was opened from —
+  // leaving discards it, same as Cancel.
+  editingNoteId = null;
   if (activePanelDeviceId) {
     const devId = activePanelDeviceId;
     const snapshot = panelOpenedStatus.get(devId);

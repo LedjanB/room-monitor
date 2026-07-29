@@ -22,13 +22,13 @@
       }
     },
     "state": {
-      ".read": "auth != null",
-      ".write": "auth != null"
+      ".read": "auth != null && root.child('users').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('users').child(auth.uid).exists()"
     },
     "notifications": {
-      ".read": "auth != null",
+      ".read": "auth != null && root.child('users').child(auth.uid).exists()",
       "$noteId": {
-        ".write": "auth != null",
+        ".write": "auth != null && root.child('users').child(auth.uid).exists()",
         ".validate": "newData.hasChildren(['message', 'ts']) && newData.child('message').isString() && newData.child('message').val().length <= 500 && newData.child('ts').isNumber() && newData.child('ts').val() <= now + 600000"
       }
     }

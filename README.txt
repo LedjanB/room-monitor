@@ -64,3 +64,20 @@ Past changes:
   history of this private repo at https://room-monitor-6902b.web.app/.git/. Fixed with an
   added "**/.*/**" ignore. A healthy deploy uploads 9 files — if you ever see thousands,
   don't release it.
+- Security: /state and /notifications required only "any logged-in Firebase account", not an
+  admin-provisioned one. Since the API key is public and self-signup is enabled, anyone could
+  create an identity and read/write all data; removed users also kept access via their old
+  password. Both rules now require a /users profile.
+- Fixed: header showed the current floor's room count next to the ALL-floors device count
+  (e.g. "8 ROOMS / 55 DEVICES" above "8 rooms / 48 devices"). Both are per-floor now.
+- Fixed: "Free Now" armed a status filter that was saved to localStorage and survived
+  reloads, so later searches silently returned nothing. Filters are session-only now, and
+  the Free Now button shows when its filter is active.
+- Fixed: the search results panel stayed open on top of the page after switching floor or
+  opening a room.
+- Notes can now be edited by whoever can delete them (author or admin); edited notes are
+  marked, and editing does not extend the 48h expiry.
+- New devices are placed in a cascade instead of all landing on the same spot.
+- Corridor status dots and the room device list now show who has a device in use.
+- Removed the duplicate "Add Bed" button; capped the activity list at 100 entries; on phones
+  toasts move to the top while the full-width detail panel is open.

@@ -64,6 +64,8 @@ import {
   rebuildPanelForDevice,
   markPanelDirty,
   canDeleteNote,
+  setEditingNote,
+  getEditingNote,
 } from './hospital_room_monitor_v9.render.js';
 
 let addDevRoomId = null;
@@ -190,6 +192,18 @@ function findDevice(roomId, devId) {
   return { room, device: room?.devices.find(device => device.id === devId) };
 }
 
+/** A free-ish spot for a newly added device: step diagonally across the
+ *  canvas so consecutive additions don't land on top of one another, and
+ *  keep the whole box inside the room. */
+function spawnPosition(room, def) {
+  const step = room.devices.length;
+  const maxX = Math.max(0, 100 - (def.w || 12));
+  const maxY = Math.max(0, 100 - (def.h || 12));
+  const x = Math.min(maxX, 12 + (step % 6) * 11);
+  const y = Math.min(maxY, 10 + (Math.floor(step / 6) % 5) * 13);
+  return { x, y };
+}
+
 /** Beds have no serial number, so the SN field is hidden (and skipped by
  *  the validator) whenever "Bed" is the selected type. */
 function syncAddDevTypeUI() {
@@ -258,13 +272,17 @@ export function confirmAddDevice() {
 
   const id = uid('dev');
   const def = typeDefaults[type] || { w: 12, h: 12 };
+  // Cascade each new device instead of dropping every one on the same spot —
+  // adding three in a row used to stack them exactly on top of each other,
+  // so they looked like one device until you dragged them apart.
+  const spot = spawnPosition(room, def);
   const device = {
     id,
     type,
     label: name,
     ...(sn ? { sn } : {}),
-    x: 50,
-    y: 40,
+    x: spot.x,
+    y: spot.y,
     w: def.w,
     h: def.h,
   };
@@ -727,12 +745,14 @@ function handleRoomDragEnd() {
 }
 
 export function openRoom(roomId) {
+  setEditingNote(null);
   state.currentRoom = rooms.find(room => room.id === roomId) || null;
   render();
   setTimeout(initDrag, 40);
 }
 
 export function goBack() {
+  setEditingNote(null);
   state.currentRoom = null;
   render();
 }
@@ -743,6 +763,7 @@ export function closeModal(id) {
 }
 
 function addNote(target, event) {
+  setEditingNote(null); // adding re-renders the list; don't leave a stale editor open
   const noteTarget = target.dataset.noteTarget;
   const targetId = target.dataset.targetId;
   const roomId = target.dataset.room;
@@ -799,6 +820,75 @@ function addNote(target, event) {
     showToast('Device note added.');
     broadcastActivity(`${who} added a note on ${device.label} (${room.name}).`);
   }
+}
+
+/** The live notes array a note button refers to, so edit/delete both read
+ *  from the same place. Room notes live in the rooms tree, device notes in
+ *  that device's devState entry. */
+function noteListFor(noteTarget, targetId) {
+  if (noteTarget === 'room') return findRoom(targetId)?.notes || [];
+  return getDeviceState(targetId).notes || [];
+}
+
+/** Re-render whichever surface the note lives on, and persist through the
+ *  matching scoped path. */
+function refreshNoteSurface(noteTarget, targetId, roomId, { persist = true } = {}) {
+  if (noteTarget === 'room') {
+    const room = findRoom(targetId);
+    if (room) state.currentRoom = room;
+    render();
+    if (persist) saveState();
+  } else {
+    rebuildPanelForDevice(targetId, roomId);
+    if (persist) saveDeviceState(targetId);
+  }
+}
+
+function startEditNote(target) {
+  const { noteTarget, targetId, room: roomId, noteId } = target.dataset;
+  const note = noteListFor(noteTarget, targetId).find(entry => entry.id === noteId);
+  if (!note || !canDeleteNote(note)) return;
+  setEditingNote(noteId);
+  refreshNoteSurface(noteTarget, targetId, roomId, { persist: false });
+  const input = document.getElementById(`noteEdit_${noteId}`);
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+function cancelEditNote(target) {
+  const { noteTarget, targetId, room: roomId } = target.dataset;
+  setEditingNote(null);
+  refreshNoteSurface(noteTarget, targetId, roomId, { persist: false });
+}
+
+function saveEditNote(target) {
+  const { noteTarget, targetId, room: roomId, noteId } = target.dataset;
+  const note = noteListFor(noteTarget, targetId).find(entry => entry.id === noteId);
+  if (!note || !canDeleteNote(note)) { setEditingNote(null); return; }
+
+  const input = document.getElementById(`noteEdit_${noteId}`);
+  const text = normalizeText(input?.value);
+  if (!text) {
+    showToast('Note text is required.', 'error');
+    input?.focus();
+    return;
+  }
+  if (text.length > 600) {
+    showToast('Note must be 600 characters or less.', 'error');
+    return;
+  }
+  if (text === note.text) { // nothing changed — don't stamp "edited" or write
+    setEditingNote(null);
+    refreshNoteSurface(noteTarget, targetId, roomId, { persist: false });
+    return;
+  }
+
+  note.text = text;
+  // Editing does not reset createdAt — the 48h expiry is measured from when
+  // the note was written, so a note can't be kept alive forever by editing it.
+  note.editedAt = new Date(serverNow()).toISOString();
+  setEditingNote(null);
+  refreshNoteSurface(noteTarget, targetId, roomId);
+  showToast('Note updated.');
 }
 
 function deleteNote(target) {
@@ -891,6 +981,11 @@ function clearSearchFilters() {
   clearSearch();
   saveLocalUIState();
 }
+
+// Actions that operate the search-results dropdown and so must not close it.
+// (Rows inside the dropdown are covered separately by a contains() check —
+// this set is for controls that live outside it.)
+const SEARCH_PANEL_ACTIONS = new Set(['show-free-now', 'clear-filters', 'cycle-status']);
 
 // Clicking the dimmed area around a modal closes it, the same way Escape
 // does. Guarded on the pointerdown target so a drag that *starts* inside
@@ -1020,6 +1115,15 @@ function handleClick(event) {
   }
 
   if (action && actionHandlers[action]) {
+    // Any action outside the results dropdown dismisses it first — otherwise
+    // switching floor or opening a room left the results panel hanging over
+    // the new view (handleClick returns early once an action matches, so the
+    // click-outside dismissal further down never ran). Actions that drive the
+    // dropdown itself are exempt.
+    const sr = document.getElementById('searchResults');
+    if (sr?.classList.contains('open') && !SEARCH_PANEL_ACTIONS.has(action) && !sr.contains(actionEl)) {
+      clearSearch();
+    }
     actionHandlers[action](actionEl, event);
     return;
   }
@@ -1065,6 +1169,9 @@ const actionHandlers = {
   'confirm-action': () => runConfirm(),
   'add-note': (target, event) => addNote(target, event),
   'delete-note': target => deleteNote(target),
+  'edit-note': target => startEditNote(target),
+  'save-edit-note': target => saveEditNote(target),
+  'cancel-edit-note': target => cancelEditNote(target),
   'do-refresh': () => location.reload(),
   'toggle-password': target => {
     const input = document.getElementById(target.dataset.target);
@@ -1403,6 +1510,12 @@ export function initApp() {
       if (confirmModal?.classList.contains('open')) { closeConfirm(); return; }
       const openModalBg = document.querySelector('.modal-bg.open');
       if (openModalBg?.id) { closeModal(openModalBg.id); return; }
+      // A note editor lives inside the panel/sidebar, so it has to be
+      // dismissed before the panel itself.
+      if (getEditingNote()) {
+        document.querySelector('[data-action="cancel-edit-note"]')?.click();
+        return;
+      }
       const sr = document.getElementById('searchResults');
       if (sr?.classList.contains('open')) { clearSearch(); return; }
       const panelBg = document.getElementById('panelBg');

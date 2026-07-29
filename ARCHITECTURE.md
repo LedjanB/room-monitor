@@ -235,12 +235,37 @@ teammate opens the app now and then, nothing accumulates past ~12h.
   setup (profile doesn't exist yet AND `meta/initialized` isn't `true`) — after that, only
   an existing admin can write any profile (including their own). Profiles are validated:
   `username` (string, 1–60 chars) and `role` (`admin`|`user`) are required.
-- `/state` — anyone logged in can read/write. There's no per-room or per-field granularity;
-  any of the ~20 accounts can edit anything. That's a deliberate trade-off for a small
-  trusted team, not an oversight.
-- `/notifications` — anyone logged in can read, write and prune entries, but entries are
-  validated: `message` (string ≤ 500 chars) and `ts` (number, at most 10 minutes in the
-  future) are required — so nobody can post an unprunable far-future entry.
+- `/state` and `/notifications` — readable and writable by any account **that has an
+  admin-provisioned `/users/<uid>` profile**. Note the second half: `auth != null` alone is
+  *not* enough, and that distinction is the whole point of the check.
+
+  **Why (this was a real hole, fixed):** these two nodes used to be gated on a bare
+  `auth != null`. But the Firebase Web API key is public (it ships in the browser bundle —
+  that's normal and unavoidable), and the project has email/password **self-signup enabled**,
+  because the app's own "Add User" flow calls the client-side
+  `createUserWithEmailAndPassword`. So anyone who viewed the page source could mint their own
+  Auth identity in a single HTTP request and then read and write every room, device, status
+  and note, plus delete the whole activity feed. The `/users` rules correctly stopped them
+  from self-provisioning a *profile*, so the app's UI locked them out — but the database
+  never asked for one. The UI was the only thing standing in the way, which is exactly the
+  thing rules exist not to rely on.
+
+  The same gap silently broke **"Remove User"**: deleting someone's profile revokes app
+  access (login refuses them), but their underlying Auth account survives by design — so
+  under the old rules a departed teammate could still sign in with their old password and
+  keep full read/write on `/state` via the REST API. Requiring a profile is what actually
+  makes removal effective.
+
+  Don't relax these back to `auth != null`. If self-signup is ever disabled in the console,
+  the check is still worth keeping — it's what makes user removal real.
+
+  Within that gate there's still no per-room or per-field granularity: any of the ~20
+  provisioned accounts can edit anything. That part remains a deliberate trade-off for a
+  small trusted team (see the admin-only note below).
+
+  `/notifications` entries are additionally validated: `message` (string ≤ 500 chars) and
+  `ts` (number, at most 10 minutes in the future) are required — so nobody can post an
+  unprunable far-future entry.
 
 **Admin-only actions (room/floor/device layout, deleting notes) are enforced in the app's
 own JS** (`isAdminRole()` checks in `interaction.js`, gating every structural handler), not
@@ -259,7 +284,11 @@ power despite the UI hiding those buttons. Accepted for a small trusted team; re
 that stops being true.
 
 **What this does *not* protect against**: a malicious *admin* account, a leaked admin
-password, or a regular user willing to bypass the UI via the console (see above). There's
+password, or a provisioned regular user willing to bypass the UI via the console (see
+above). It *does* now protect against a stranger who mints their own Firebase Auth
+identity with the public API key, and against a removed teammate reusing their old
+password — both had full database access until the `/state` and `/notifications` rules
+started requiring a profile. There's
 no audit trail beyond the 12h notification log, and no Cloud-Functions-enforced business
 logic — all validation happens client-side. Acceptable for a free, 20-person internal tool;
 would need rethinking if this ever handled anything actually sensitive or adversarial.
