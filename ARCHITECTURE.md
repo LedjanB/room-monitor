@@ -13,6 +13,9 @@ Firebase project: `room-monitor-6902b`
 Originally a hospital-room equipment tracker (rooms → devices: TVs, "Hello" video units,
 whiteboards, beds, room signs), repurposed as a shared status board. Each device has a
 status (`free` / `inuse` / `not_available`), optionally who's using it, and a note thread.
+Beds are the exception: they're furniture, so they have no status, no detail panel and no
+serial number (legacy `SN-BD…` values are stripped on load by `stripBedSerial()` in
+`data.js`, and the Add Device modal hides the SN field when the type is Bed).
 Admins can edit the room/device layout (add/remove rooms, floors, devices, drag devices
 around a room canvas); everyone else can update status and leave notes.
 
@@ -102,6 +105,15 @@ existing search-filter panel's status=Free filter across every room/floor in one
 it's the same filtering `handleSearch()` already did, just given a one-click entry point
 for "what's free right now" instead of requiring the filter dropdown.
 
+Because Free Now *is* the search list, both share its ordering: results sort by device type
+first (`SEARCH_TYPE_ORDER` in `render.js` — Hello → Whiteboard → TV → Room Sign → Bed), then
+floor, room and label, with a heading per type group so the priority reads as deliberate.
+Clicking a result runs `goToDevice()`, which now also scrolls the tile into view and replays
+an attention pulse on it (`updateSelectedDeviceVisual({ reveal: true })`) — opening the panel
+alone told you *what* you picked but not *which tile on the canvas* it was. The selection
+ring is an `outline`, not a `box-shadow`, specifically because the per-status shadow rules
+further down the CSS all carry `!important` and would otherwise paint over it.
+
 ## Auth model — why it's more than it looks
 
 The login/setup screens use plain username + password, but under the hood every account
@@ -159,6 +171,36 @@ Authentication → Users lets you bulk-delete manually.
   applied to in-memory state, it just doesn't redraw until you're no longer typing.
   Otherwise a well-timed remote update would wipe out whatever you were mid-typing, the
   same failure mode the drag guard exists for.
+
+## Notes (room + device) — authorship and 48h lifetime
+
+Notes are short-lived coordination messages, not a permanent log. Two rules govern them:
+
+**Who can delete one.** `canDeleteNote()` in `render.js` is the single source of truth,
+used both to decide whether to render the × button and re-checked in `deleteNote()`
+(`interaction.js`) so a stale/tampered DOM can't bypass it. An admin can delete any note;
+everyone else only their own. New notes carry `authorId` (the author's Firebase uid) —
+that's what's matched. Notes written before that field existed only have the `author`
+username string, so those fall back to a case-insensitive username comparison. If
+`authorId` is present it wins outright, so renaming/reusing a username can't hand someone
+else's notes to a new account.
+
+**They expire after 48 hours.** `NOTE_TTL_MS` in `data.js`, swept by `runNoteExpiry()` —
+the same cooperative, no-backend pattern as the notification prune and the device-status
+expiry: whichever client has the app open does the work. It runs on initial load, on every
+remote snapshot (a snapshot re-delivers notes another client hasn't pruned yet, so a
+one-shot sweep at startup would get clobbered — exactly the reasoning in the device-expiry
+section above), and on the 30-minute sweep timer, which it shares with
+`startDeviceStatusExpiry()`.
+
+Persistence is split because the two kinds of note live in different places: device notes
+are in `devState/<id>` and go out through a scoped `set(state/devState/<id>)`; room notes
+live in the structural `rooms` tree and go out through a scoped `set(state/rooms)` — not a
+whole-tree `saveState()`. Like `persistExpiryCorrections()`, this deliberately bypasses the
+`applyingRemote` guard, or the expired notes would live on the server forever. It's
+idempotent (a second pass finds nothing) and only writes when something actually expired.
+A note with a missing or unparseable `createdAt` is treated as **fresh**, never silently
+deleted. Creation stamps use `serverNow()`, same as everything else time-sensitive.
 
 ## Notifications (the bell icon)
 
@@ -250,31 +292,62 @@ would need rethinking if this ever handled anything actually sensitive or advers
    to use that *same* scaled size, or a drag that looks valid snaps back after the next
    sync. If you ever add a new device type with its own `sizeScale`, make sure `pos()`
    still gets called with the scaled width/height, not the raw one.
-5. **Hosting cache headers.** `firebase.json` sets `Cache-Control: no-cache` on every file.
+5. **Devices on the room canvas are overlapping rectangles, and stack order is what
+   decides who gets the click.** A Hello sits on the top edge of a TV, and its `.device`
+   box is padded well beyond the drawn glyph, so with everything at one z-index the DOM
+   order silently decided which one you hit — clicking a Hello usually opened the TV. Two
+   things fix it, both at the end of the CSS: only the drawn shape takes pointer events
+   (`.device{pointer-events:none}` plus an explicit allow-list of shape children — don't
+   add a new device type's shape without adding it there), and z-index runs
+   smallest-target-first (bed 4 → tv 8 → whiteboard 12 → roomsign 20 → hello 30). Hover
+   lifts a tile only *within* its tier, so a hovered TV can never rise above the Hellos on
+   top of it. Related: **hover may grow a tile but must never move one.** Hover applies
+   `transform:scale(…)` to everything except TVs (they're the biggest tiles and the Hellos
+   sit on their top edge, so an expanding TV would swallow them). A pure scale from the
+   centre is safe because the box only ever grows — a cursor that's on the tile stays on
+   it. The old `translateY(-2px) scale(1.01)` slid the box out from under the cursor, which
+   un-hovered it, which slid it back; that oscillation is what made small devices feel like
+   they refused to be selected. Don't reintroduce a translate. Because the hover scale
+   changes the rendered box, `onPointerDown()` adds `.no-hover-fx` (which forces
+   `transform:none`) *before* calling `getBoundingClientRect()` — the grab offset is
+   measured there and then applied to the untransformed box during the drag, so measuring a
+   scaled tile makes it jump under the cursor the moment a drag starts.
+6. **The toast stack sits exactly on top of the panel's sticky Save Changes bar.** Both
+   are bottom-right and fixed. Toasts are therefore `pointer-events:none` — without it the
+   "Status set to in use — click Save Changes to apply" toast physically blocked the button
+   it was pointing at until it faded. Nothing in a toast is interactive; if that ever
+   changes, the bar needs to move instead.
+7. **A modal's header must not scroll.** `.modal` is a flex column with `overflow:hidden`
+   and only `.modal-body` scrolls; header and footer are fixed rows. Before that, `.modal`
+   was the scroll container itself, so a long list (Recent Activity) scrolled its own ×
+   out of reach. Modals also close on a backdrop click, guarded on the *pointerdown*
+   target so a text selection that starts inside the dialog and ends outside doesn't
+   dismiss it.
+8. **Hosting cache headers.** `firebase.json` sets `Cache-Control: no-cache` on every file.
    Without it, browsers cache the HTML/JS for an hour by default, and a user mid-deploy can
    load a broken mix of old and new files. Don't remove this header. The `ignore` list also
    keeps `ARCHITECTURE.md` and `database.rules.json` out of the deploy — they used to be
    publicly served, handing anyone the full security writeup. Don't remove those entries
    either.
-6. **`initApp()` must stay idempotent.** It attaches all of the app's `document`-level
+9. **`initApp()` must stay idempotent.** It attaches all of the app's `document`-level
    event listeners (clicks, drags, keyboard). It now runs once, unconditionally, at
    startup (before login) so the Sign In / Create Account buttons actually work — a guard
    flag (`_appInitialized`) makes repeat calls a no-op. If you ever see login buttons doing
    nothing again, this is the first thing to check.
-7. **Ids must stay globally unique without the counter being in sync.** `uid()`/`noteUid()`
+10. **Ids must stay globally unique without the counter being in sync.** `uid()`/`noteUid()`
    append a time+random suffix because narrow saves (`saveDeviceState()`) don't sync
    `uidCounter` across clients — with bare counters, two clients could mint the same note
    id and deleting one note deleted both. `applyStatePayload()` also merges the counter
    with `Math.max`, never a plain overwrite.
-8. **All time math goes through `serverNow()`** (`data.js`) — status `since` stamps,
+11. **All time math goes through `serverNow()`** (`data.js`) — status `since` stamps,
    auto-expiry, notification timestamps and pruning. Don't reintroduce bare `Date.now()`
    into any of those paths, or one wrong client clock starts corrupting shared state again.
-9. **Form controls that carry `data-action` are handled by the input/change/keydown
+12. **Form controls that carry `data-action` are handled by the input/change/keydown
    listeners, never by the click handler** — `handleClick()` deliberately skips
    INPUT/SELECT/TEXTAREA action elements. Before that guard, clicking inside the
    rename-device input (whose `data-action="save-dev-name"` exists for the Enter key)
    instantly saved and closed the editor.
-10. **The panel's status dropdown is a live preview, not a save.** It mutates in-memory
+13. **The panel's status dropdown is a live preview, not a save.** It mutates in-memory
     state for instant feedback; `savePanel()` persists, and `closePanel()` rolls the
     preview back if the panel is closed without saving (otherwise tiles keep showing a
     status that never reached the server). Failed Firebase writes surface as error toasts
