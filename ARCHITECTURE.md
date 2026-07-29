@@ -329,6 +329,23 @@ would need rethinking if this ever handled anything actually sensitive or advers
    keeps `ARCHITECTURE.md` and `database.rules.json` out of the deploy — they used to be
    publicly served, handing anyone the full security writeup. Don't remove those entries
    either.
+
+   **`**/.*` does NOT exclude the *contents* of dot-directories.** It matches files whose
+   basename starts with a dot, so `.git/config` (basename `config`) sailed straight past it.
+   Since `"public": "."`, the whole `.git` directory was being uploaded and served —
+   `/.git/config`, `/.git/HEAD` and the object store were all publicly fetchable, meaning
+   the complete history of a *private* repo, including the very `ARCHITECTURE.md` this
+   ignore list exists to withhold, was downloadable by anyone with the site URL.
+   `.firebase/` and `.claude/` leaked the same way. The fix is the additional `**/.*/**`
+   entry, which covers directory contents rather than just the entry itself.
+
+   **A healthy deploy reports `found 9 files`.** If `firebase deploy` ever prints a count in
+   the thousands, it is uploading `.git` — stop and fix the ignore list before releasing.
+   Re-verify after any change to it:
+
+   ```
+   curl -o /dev/null -w '%{http_code}\n' https://room-monitor-6902b.web.app/.git/config   # must be 404
+   ```
 9. **`initApp()` must stay idempotent.** It attaches all of the app's `document`-level
    event listeners (clicks, drags, keyboard). It now runs once, unconditionally, at
    startup (before login) so the Sign In / Create Account buttons actually work — a guard

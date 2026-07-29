@@ -5,10 +5,12 @@
       "firebase.json",
       "database.rules.json",
       "**/.*",
+      "**/.*/**",
       "**/node_modules/**",
       "package.json",
       "package-lock.json",
       "README.txt",
+      "deploy.sh",
       "**/*.md"
     ],
     "headers": [

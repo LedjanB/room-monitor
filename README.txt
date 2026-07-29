@@ -59,3 +59,8 @@ Past changes:
   dimmed backdrop now closes a modal too.
 - Fixed: a toast covering the panel's "Save Changes" button — the toast stack moved to the
   bottom centre, clear of the panel, and no longer takes clicks.
+- Security: the deploy was serving the entire .git directory publicly (the "**/.*" ignore
+  pattern only matches dotfiles, not the contents of dot-directories), exposing the full
+  history of this private repo at https://room-monitor-6902b.web.app/.git/. Fixed with an
+  added "**/.*/**" ignore. A healthy deploy uploads 9 files — if you ever see thousands,
+  don't release it.
