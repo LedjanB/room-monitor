@@ -53,6 +53,9 @@ Past changes:
   so it's obvious which tile you picked.
 - Fixed: overlapping devices stealing each other's clicks (a Hello on top of a TV is now
   always the one you hit), and the hover wobble that made small tiles hard to select.
+  Hovering now grows the tile slightly (TVs excepted — they'd swallow the Hellos on their
+  top edge).
 - Fixed: a modal's × scrolling out of reach in long lists (Recent Activity); clicking the
   dimmed backdrop now closes a modal too.
-- Fixed: a toast covering the panel's "Save Changes" button — toasts no longer take clicks.
+- Fixed: a toast covering the panel's "Save Changes" button — the toast stack moved to the
+  bottom centre, clear of the panel, and no longer takes clicks.

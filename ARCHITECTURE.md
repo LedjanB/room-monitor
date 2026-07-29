@@ -301,10 +301,17 @@ would need rethinking if this ever handled anything actually sensitive or advers
    add a new device type's shape without adding it there), and z-index runs
    smallest-target-first (bed 4 → tv 8 → whiteboard 12 → roomsign 20 → hello 30). Hover
    lifts a tile only *within* its tier, so a hovered TV can never rise above the Hellos on
-   top of it. Related: hover must not move the tile — the old
-   `transform:translateY(-2px) scale(1.01)` slid the box out from under the cursor, which
-   un-hovered it, which slid it back; that oscillation is what made small devices feel
-   like they refused to be selected.
+   top of it. Related: **hover may grow a tile but must never move one.** Hover applies
+   `transform:scale(…)` to everything except TVs (they're the biggest tiles and the Hellos
+   sit on their top edge, so an expanding TV would swallow them). A pure scale from the
+   centre is safe because the box only ever grows — a cursor that's on the tile stays on
+   it. The old `translateY(-2px) scale(1.01)` slid the box out from under the cursor, which
+   un-hovered it, which slid it back; that oscillation is what made small devices feel like
+   they refused to be selected. Don't reintroduce a translate. Because the hover scale
+   changes the rendered box, `onPointerDown()` adds `.no-hover-fx` (which forces
+   `transform:none`) *before* calling `getBoundingClientRect()` — the grab offset is
+   measured there and then applied to the untransformed box during the drag, so measuring a
+   scaled tile makes it jump under the cursor the moment a drag starts.
 6. **The toast stack sits exactly on top of the panel's sticky Save Changes bar.** Both
    are bottom-right and fixed. Toasts are therefore `pointer-events:none` — without it the
    "Status set to in use — click Save Changes to apply" toast physically blocked the button
