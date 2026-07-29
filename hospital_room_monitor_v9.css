@@ -1303,46 +1303,29 @@ body{
    pointing at. Using `outline` rather than `box-shadow` also sidesteps
    the per-status shadow rules further up, which all carry !important. */
 
-/* Hover: a light ring plus the device's own name, so you can tell which
-   tile you're on before committing to a click. Removing the old hover
-   transform fixed the jitter but left almost no feedback at all. */
-.device:not([data-type="bed"]):hover > .tv-outer,
-.device:not([data-type="bed"]):hover > .hello-shape,
-.device:not([data-type="bed"]):hover > .wb-shape > .wb-panel,
-.device:not([data-type="bed"]):hover > .rsign-shape > .rsign-bezel{
-  outline:2px solid rgba(47,111,237,.55);
-  outline-offset:2px;
-  border-radius:8px;
-}
+/* Hover: the tile grows slightly. This is safe *only* because it's a pure
+   scale from the centre with no translate — the box can only get bigger,
+   so a cursor that's on the tile stays on it. The old
+   `translateY(-2px) scale(1.01)` moved the box up instead, which dropped
+   the cursor off the bottom edge, un-hovered it, moved it back, and
+   oscillated; that was the "won't let me select it" bug. Never
+   reintroduce a translate here.
+   TVs deliberately don't grow: they're the biggest tiles on the canvas
+   and the Hellos sit right on their top edge, so an expanding TV would
+   swallow them. TVs keep the brightness/drop-shadow lift instead (see the
+   base :hover rule further up). */
+.device[data-type="hello"]:hover,
+.device[data-type="roomsign"]:hover{transform:scale(1.12);}
+.device[data-type="whiteboard"]:hover{transform:scale(1.06);}
+.device[data-type="hello"].is-selected,
+.device[data-type="roomsign"].is-selected{transform:scale(1.12);}
+.device[data-type="whiteboard"].is-selected{transform:scale(1.06);}
 
-/* Name chip. Sits *below* the tile on purpose: `.room-area` clips its
-   overflow and the Hellos/room signs sit flush against the top wall
-   (y:0), so a label above them would be cut off entirely. */
-.device:not([data-type="bed"])[data-label]::after{
-  content:attr(data-label);
-  position:absolute;
-  /* Clears the quick-status toggle, which hangs 6px below the tile. */
-  top:calc(100% + 12px);
-  left:50%;
-  transform:translateX(-50%);
-  z-index:120;
-  pointer-events:none;
-  opacity:0;
-  transition:opacity .12s ease;
-  background:rgba(20,24,21,.94);
-  color:#fff;
-  font-size:10px;
-  font-weight:800;
-  letter-spacing:.04em;
-  line-height:1;
-  padding:5px 8px;
-  border-radius:6px;
-  white-space:nowrap;
-  box-shadow:0 4px 12px rgba(0,0,0,.28);
-}
-.device:not([data-type="bed"]):hover::after,
-.device:not([data-type="bed"]).is-selected::after{opacity:1;}
-.device.dragging::after{opacity:0 !important;}
+/* Never scale mid-drag: the drag offset is measured from the real box, so
+   a scaled one would make the tile jump under the cursor. onPointerDown
+   adds .no-hover-fx before measuring; .dragging keeps it off afterwards. */
+.device.no-hover-fx,
+.device.dragging{transform:none !important;}
 
 /* Selected: same ring, turned up — solid accent plus a soft halo, so it
    reads as "this is the one" next to a merely-hovered neighbour rather

@@ -226,7 +226,6 @@ export function deviceHTML(dev, room) {
   return `<div class="device" id="dev-${dev.id}"
     style="left:${p.x}%;top:${p.y}%;width:${displayW}%;height:${displayH}%;"
     data-device-id="${dev.id}" data-room="${room.id}" data-type="${dev.type}" data-status="${meta.key}" data-w="${displayW}" data-h="${displayH}"
-    data-label="${esc(dev.label)}"
     data-draggable="${draggable}" tabindex="0" role="button" aria-label="${esc(aria)}">
     ${delBtn}
     ${quickToggle}
@@ -691,6 +690,11 @@ function onPointerDown(e) {
   // only start dragging for admin + draggable devices
   if (!isAdmin() || el.dataset.draggable !== 'true') return;
   e.preventDefault();
+  // Drop the hover scale *before* measuring. The grab offset is taken from
+  // this rect and then applied to the untransformed box during the drag, so
+  // measuring an enlarged tile would make it jump under the cursor the
+  // moment the drag starts. Cleared again in onMouseUp().
+  el.classList.add('no-hover-fx');
   const er = el.getBoundingClientRect();
   dragOffX = e.clientX - er.left;
   dragOffY = e.clientY - er.top;
@@ -764,6 +768,7 @@ function onMouseUp() {
   const draggedDeviceId = dragMoved ? dragEl?.dataset.deviceId : null;
   if (dragEl) {
     dragEl.classList.remove('dragging');
+    dragEl.classList.remove('no-hover-fx');
     dragEl.style.transform = '';
     dragEl.style.transition = '';
     suppressDeviceClickUntil = Date.now() + 250;
