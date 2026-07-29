@@ -43,3 +43,16 @@ Past changes:
 - Per-floor "X Free · Y In Use" summary in the corridor header.
 - Colorblind-safe status: symbols on toggles (✓/–/✕) and shape-coded dots.
 - Polish: Esc closes overlays, password Show/Hide, "connection lost" indicator.
+- Notes: everyone can delete the notes they wrote (admins can still delete any), and all
+  notes auto-delete 48 hours after they're added.
+- Beds no longer have serial numbers (they're furniture, not tracked equipment) — existing
+  bed serials are stripped on load.
+- Search / Free Now results are ordered Hello → Whiteboard → TV → the rest, with a heading
+  per type group.
+- Opening a device from a search result now scrolls to it and flashes a ring on the canvas,
+  so it's obvious which tile you picked.
+- Fixed: overlapping devices stealing each other's clicks (a Hello on top of a TV is now
+  always the one you hit), and the hover wobble that made small tiles hard to select.
+- Fixed: a modal's × scrolling out of reach in long lists (Recent Activity); clicking the
+  dimmed backdrop now closes a modal too.
+- Fixed: a toast covering the panel's "Save Changes" button — toasts no longer take clicks.

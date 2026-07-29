@@ -1207,3 +1207,138 @@ body{
   .room-btn{padding:9px 10px;}
   .rdevs{font-size:11px;}
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   v12 — interaction fixes. Deliberately last in the file: several of
+   these override earlier rules that already carry !important.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Modal chrome stays put while the content scrolls ──────────────
+   .modal used to be the scroll container itself, so a long list (the
+   Recent Activity feed) scrolled its own header — and the × — up out
+   of reach. Header and footer are now fixed rows of a flex column and
+   only .modal-body scrolls. */
+.modal{
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.modal-hdr,.modal-footer{flex:0 0 auto;}
+.modal-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.modal-hdr .panel-x{flex-shrink:0;}
+/* The backdrop is a click target (closes the modal) — say so. */
+.modal-bg.open{cursor:pointer;}
+.modal{cursor:default;}
+
+/* ── Toasts must never eat a click ─────────────────────────────────
+   The toast stack sits bottom-right, exactly on top of the detail
+   panel's sticky "Save Changes" bar, so a status-change toast blocked
+   the very button it was telling you to press. Nothing in a toast is
+   interactive, so it simply stops taking pointer events. */
+.toast-stack,.toast{pointer-events:none;}
+
+/* ── Device hit-testing on the room canvas ─────────────────────────
+   Every device is an absolutely-positioned rectangle, and those
+   rectangles overlap (a Hello sits at the top edge of a TV). With all
+   of them at the same z-index, DOM order decided who got the click —
+   so clicking a small Hello often hit the big TV box behind/over it.
+   Two fixes:
+   1. Only the drawn shape takes pointer events, not the padded box.
+   2. Stack order runs smallest-target-first, so a Hello is always
+      clickable even where it overlaps a TV or whiteboard. */
+.device{pointer-events:none;}
+.device > .tv-outer,
+.device > .hello-shape,
+.device > .wb-shape,
+.device > .rsign-shape,
+.device > .bed-shape,
+.device > .dev-actions,
+.device > .dev-quick-toggle{pointer-events:auto;}
+
+.device[data-type="bed"]{z-index:4;}
+.device[data-type="tv"]{z-index:8;}
+.device[data-type="whiteboard"]{z-index:12;}
+.device[data-type="roomsign"]{z-index:20;}
+.device[data-type="hello"]{z-index:30;}
+
+/* Hover no longer nudges the tile. The old translateY(-2px) scale(1.01)
+   moved the box out from under the cursor the instant it was hovered,
+   which un-hovered it, which moved it back — the jitter that made small
+   devices feel like they refused to be picked. Keep the glow, drop the
+   movement. */
+.device:not([data-type="bed"]):hover{transform:none;}
+/* Hover lifts a tile only *within* its tier — a hovered TV must not rise
+   above the Hellos sitting on top of it, or the glow would hide them. */
+.device[data-type="tv"]:hover{z-index:10;}
+.device[data-type="whiteboard"]:hover{z-index:14;}
+.device[data-type="roomsign"]:hover{z-index:22;}
+.device[data-type="hello"]:hover{z-index:32;}
+.device.is-selected{z-index:95;}
+.device.dragging{z-index:200;}
+
+/* ── "This is the one you picked" ──────────────────────────────────
+   Opening a device from a search result used to just show the panel,
+   leaving you to guess which tile it was — and the earlier per-status
+   box-shadow rules (all !important) painted over the selection ring.
+   An outline can't be overridden by those, and the pulse replays each
+   time you arrive from search (see updateSelectedDeviceVisual). */
+.device.is-selected{
+  outline:3px solid var(--accent);
+  outline-offset:4px;
+  border-radius:8px;
+}
+.device.just-revealed{
+  animation:devReveal 1.1s ease-out 2;
+}
+@keyframes devReveal{
+  0%   {box-shadow:0 0 0 0 rgba(47,111,237,.55);}
+  100% {box-shadow:0 0 0 18px rgba(47,111,237,0);}
+}
+/* Lighter panel scrim so the highlighted tile stays legible behind it —
+   the point of the ring is to be seen while the panel is open. */
+.panel-bg{background:rgba(17,20,18,.20);backdrop-filter:blur(1.5px);}
+
+@media (prefers-reduced-motion: reduce){
+  .device.just-revealed{animation:none;}
+}
+
+/* ── Search / Free Now results: type grouping ──────────────────────
+   Results are ordered Hello → Whiteboard → TV → the rest; the heading
+   makes that ordering read as intentional. */
+.sr-group{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin:10px 2px 2px;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--text3);
+}
+.sr-group:first-of-type{margin-top:4px;}
+.sr-group-n{
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.02em;
+  color:var(--text4);
+  background:var(--bg2);
+  border-radius:999px;
+  padding:1px 7px;
+}
+
+/* ── Notes: 48-hour lifetime hint ──────────────────────────────────*/
+.note-ttl-hint{
+  margin-top:9px;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.04em;
+  color:var(--text4);
+  line-height:1.4;
+}

@@ -78,8 +78,8 @@ export const rooms = [
     { id:'r1-tv2',  type:'tv',         label:'TV 2',        sn:'SN-TV10002', x:65, y:5,  w:30, h:24 },
     { id:'r1-h3',   type:'hello',      label:'Hello 3',     sn:'SN-HL10003', x:65, y:0,  w:9,  h:6  },
     { id:'r1-h4',   type:'hello',      label:'Hello 4',     sn:'SN-HL10004', x:75, y:0,  w:9,  h:6  },
-    { id:'r1-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD10001', x:4,  y:36, w:22, h:54 },
-    { id:'r1-bed2', type:'bed',        label:'Bed 2',       sn:'SN-BD10002', x:70, y:36, w:22, h:54 },
+    { id:'r1-bed1', type:'bed',        label:'Bed 1',       x:4,  y:36, w:22, h:54 },
+    { id:'r1-bed2', type:'bed',        label:'Bed 2',       x:70, y:36, w:22, h:54 },
     { id:'r1-rs1',  type:'roomsign',   label:'Room Sign',   sn:'SN-RS10001', x:44, y:0,  w:6,  h:8 },
   ]},
   { id:'r2', floorId:'f1', name:'Dhoma 2', side:'right', pos:1, devices:[
@@ -88,7 +88,7 @@ export const rooms = [
     { id:'r2-h2',   type:'hello',      label:'Hello 2',     sn:'SN-HL20002', x:13, y:0,  w:9,  h:6  },
     { id:'r2-wb1',  type:'whiteboard', label:'Whiteboard',  sn:'SN-WB20001', x:63, y:4,  w:12, h:26 },
     { id:'r2-wh1',  type:'hello',      label:'Hello WB',    sn:'SN-HL20003', x:63, y:0,  w:9,  h:5  },
-    { id:'r2-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD20001', x:35, y:36, w:22, h:54 },
+    { id:'r2-bed1', type:'bed',        label:'Bed 1',       x:35, y:36, w:22, h:54 },
     { id:'r2-rs1',  type:'roomsign',   label:'Room Sign',   sn:'SN-RS20001', x:44, y:0,  w:6,  h:8 },
   ]},
   { id:'r3', floorId:'f1', name:'Dhoma 3', side:'left',  pos:2, devices:[
@@ -97,45 +97,45 @@ export const rooms = [
     { id:'r3-h2',   type:'hello',      label:'Hello 2',     sn:'SN-HL30002', x:13, y:0,  w:9,  h:6  },
     { id:'r3-wb1',  type:'whiteboard', label:'Whiteboard',  sn:'SN-WB30001', x:63, y:4,  w:12, h:26 },
     { id:'r3-wh1',  type:'hello',      label:'Hello WB',    sn:'SN-HL30003', x:63, y:0,  w:9,  h:5  },
-    { id:'r3-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD30001', x:35, y:36, w:22, h:54 },
+    { id:'r3-bed1', type:'bed',        label:'Bed 1',       x:35, y:36, w:22, h:54 },
   ]},
   { id:'r4', floorId:'f1', name:'Dhoma 4', side:'right', pos:2, devices:[
     { id:'r4-tv1',  type:'tv',         label:'TV 1',        sn:'SN-TV40001', x:3,  y:5,  w:28, h:23 },
     { id:'r4-h1',   type:'hello',      label:'Hello 1',     sn:'SN-HL40001', x:3,  y:0,  w:9,  h:6  },
     { id:'r4-h2',   type:'hello',      label:'Hello 2',     sn:'SN-HL40002', x:13, y:0,  w:9,  h:6  },
     { id:'r4-wb1',  type:'whiteboard', label:'Whiteboard 1',sn:'SN-WB40001', x:38, y:4,  w:12, h:26 },
-    { id:'r4-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD40001', x:3,  y:38, w:20, h:52 },
-    { id:'r4-bed2', type:'bed',        label:'Bed 2',       sn:'SN-BD40002', x:73, y:38, w:20, h:52 },
+    { id:'r4-bed1', type:'bed',        label:'Bed 1',       x:3,  y:38, w:20, h:52 },
+    { id:'r4-bed2', type:'bed',        label:'Bed 2',       x:73, y:38, w:20, h:52 },
   ]},
   { id:'r5', floorId:'f1', name:'Dhoma 5', side:'left',  pos:3, devices:[
     { id:'r5-tv1',  type:'tv',         label:'TV 1',        sn:'SN-TV50001', x:3,  y:5,  w:30, h:24 },
     { id:'r5-h1',   type:'hello',      label:'Hello 1',     sn:'SN-HL50001', x:3,  y:0,  w:9,  h:6  },
     { id:'r5-h2',   type:'hello',      label:'Hello 2',     sn:'SN-HL50002', x:13, y:0,  w:9,  h:6  },
     { id:'r5-tv2',  type:'tv',         label:'TV 2',        sn:'SN-TV50002', x:62, y:5,  w:30, h:24 },
-    { id:'r5-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD50001', x:35, y:36, w:22, h:54 },
+    { id:'r5-bed1', type:'bed',        label:'Bed 1',       x:35, y:36, w:22, h:54 },
     { id:'r5-rs1',  type:'roomsign',   label:'Room Sign',   sn:'SN-RS50001', x:44, y:0,  w:6,  h:8 },
   ]},
   { id:'r6', floorId:'f1', name:'Dhoma 6', side:'right', pos:3, devices:[
     { id:'r6-tv1',  type:'tv',         label:'TV 1',        sn:'SN-TV60001', x:3,  y:5,  w:30, h:24 },
     { id:'r6-h1',   type:'hello',      label:'Hello 1',     sn:'SN-HL60001', x:3,  y:0,  w:9,  h:6  },
     { id:'r6-wb1',  type:'whiteboard', label:'Whiteboard',  sn:'SN-WB60001', x:63, y:4,  w:12, h:26 },
-    { id:'r6-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD60001', x:35, y:36, w:22, h:54 },
+    { id:'r6-bed1', type:'bed',        label:'Bed 1',       x:35, y:36, w:22, h:54 },
   ]},
   { id:'r7', floorId:'f1', name:'Dhoma 7', side:'right', pos:4, devices:[
     { id:'r7-tv1',  type:'tv',         label:'TV 1',        sn:'SN-TV70001', x:3,  y:5,  w:30, h:24 },
     { id:'r7-h1',   type:'hello',      label:'Hello 1',     sn:'SN-HL70001', x:3,  y:0,  w:9,  h:6  },
-    { id:'r7-bed1', type:'bed',        label:'Bed 1',       sn:'SN-BD70001', x:35, y:36, w:22, h:54 },
+    { id:'r7-bed1', type:'bed',        label:'Bed 1',       x:35, y:36, w:22, h:54 },
   ]},
   { id:'r8', floorId:'f2', name:'Dhoma A1', side:'left', pos:1, devices:[
     { id:'r8-tv1',  type:'tv',   label:'TV 1',    sn:'SN-TV80001', x:3,  y:5,  w:30, h:24 },
     { id:'r8-h1',   type:'hello',label:'Hello 1', sn:'SN-HL80001', x:3,  y:0,  w:9,  h:6  },
-    { id:'r8-bed1', type:'bed',  label:'Bed 1',   sn:'SN-BD80001', x:35, y:36, w:22, h:54 },
+    { id:'r8-bed1', type:'bed',  label:'Bed 1',   x:35, y:36, w:22, h:54 },
     { id:'r8-rs1',  type:'roomsign',label:'Room Sign',sn:'SN-RS80001',x:44,y:0, w:6,h:8 },
   ]},
   { id:'r9', floorId:'f2', name:'Dhoma A2', side:'right', pos:1, devices:[
     { id:'r9-tv1',  type:'tv',   label:'TV 1',    sn:'SN-TV90001', x:3,  y:5,  w:30, h:24 },
     { id:'r9-h1',   type:'hello',label:'Hello 1', sn:'SN-HL90001', x:3,  y:0,  w:9,  h:6  },
-    { id:'r9-bed1', type:'bed',  label:'Bed 1',   sn:'SN-BD90001', x:35, y:36, w:22, h:54 },
+    { id:'r9-bed1', type:'bed',  label:'Bed 1',   x:35, y:36, w:22, h:54 },
   ]},
 ];
 
@@ -371,6 +371,19 @@ function loadLocalUIState() {
   } catch (e) { /* ignore */ }
 }
 
+/** Beds are room furniture, not tracked equipment — they have no status, no
+ *  panel and nothing to look up by serial. Older data (and the original
+ *  seed layout) gave them SN-BD…/SN-BED-… strings anyway, which made them
+ *  turn up in SN search and in the "serial number already exists" check.
+ *  Normalized away on every read; the next structural save persists it. */
+function stripBedSerial(device) {
+  if (device && device.type === 'bed' && device.sn) {
+    const { sn, ...rest } = device;
+    return rest;
+  }
+  return device;
+}
+
 function applyStatePayload(p, { resetNav = false } = {}) {
   if (!p) return;
   if (p.floors) {
@@ -384,7 +397,7 @@ function applyStatePayload(p, { resetNav = false } = {}) {
     // so a room with zero devices or notes comes back without those keys.
     p.rooms.forEach(r => rooms.push({
       ...r,
-      devices: Array.isArray(r.devices) ? r.devices : [],
+      devices: (Array.isArray(r.devices) ? r.devices : []).map(stripBedSerial),
       notes: Array.isArray(r.notes) ? r.notes : [],
     }));
   } else {
@@ -440,6 +453,7 @@ export async function loadRemoteState() {
       applyingRemote = true;
       try { applyStatePayload(snap.val(), { resetNav: true }); } finally { applyingRemote = false; }
       runDeviceExpiry(); // free anything left over from a previous day, before first paint
+      runNoteExpiry();   // and drop notes older than 48h
     } else {
       const defaults = buildDefaultStatePayload();
       await set(stateRef, defaults);
@@ -465,6 +479,9 @@ export function subscribeRemoteState(onChange) {
     // Re-apply expiry on top of every live snapshot — this is what stops the
     // listener from re-reverting a device we just auto-freed back to in-use.
     runDeviceExpiry();
+    // Same reasoning for notes: a snapshot re-delivers expired notes, so the
+    // 48h sweep has to re-run on every apply, not just once at startup.
+    runNoteExpiry();
     // Cache the normalized, post-expiry state (not the raw snapshot, which
     // is missing empty arrays and may still hold a just-expired status).
     localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload()));
@@ -652,14 +669,102 @@ function runDeviceExpiry() {
  *  live-update paths already run expiry themselves). onChange() fires
  *  whenever a device actually got auto-freed so the caller can re-render. */
 export function startDeviceStatusExpiry(onChange) {
-  if (runDeviceExpiry() && onChange) onChange();
+  // The same timer also drives the 48h note sweep — both are "whichever
+  // client is open cleans up" passes over the shared state, so there's no
+  // reason for a second interval.
+  const sweep = () => {
+    const statusChanged = runDeviceExpiry();
+    const notesChanged = runNoteExpiry();
+    return statusChanged || notesChanged;
+  };
+  if (sweep() && onChange) onChange();
   if (_deviceExpiryTimer) return () => {};
   _deviceExpiryTimer = setInterval(() => {
-    if (runDeviceExpiry() && onChange) onChange();
+    if (sweep() && onChange) onChange();
   }, DEVICE_STATUS_SWEEP_INTERVAL_MS);
   return () => {
     if (_deviceExpiryTimer) { clearInterval(_deviceExpiryTimer); _deviceExpiryTimer = null; }
   };
+}
+
+// ── note expiry (48 hours) ──────────────────────────────────────────
+// Notes are short-lived coordination messages ("charging", "swapped the
+// remote"), not a permanent log, so they self-delete 48 hours after they
+// were written. Same no-backend, cooperative pattern as the notification
+// prune and the device-status expiry above: whichever client has the app
+// open next does the sweep — on load, on every remote snapshot, and on a
+// periodic timer. As long as someone opens the app now and then, nothing
+// older than ~48h survives.
+//
+// Room notes live in the structural `rooms` tree and device notes live in
+// devState/<id>, so the two halves persist through different scoped paths
+// (see persistNoteExpiry below).
+export const NOTE_TTL_MS = 48 * 60 * 60 * 1000;
+
+/** A note's creation time in epoch ms. Notes written before this field was
+ *  reliable — or with an unparseable date — are treated as fresh rather
+ *  than silently deleted. */
+function noteTimestamp(note, fallback) {
+  const t = Date.parse(note?.createdAt);
+  return Number.isFinite(t) ? t : fallback;
+}
+
+/** Drops expired notes from the local room/device state. Pure-local —
+ *  returns what changed so the caller can write it back. */
+function applyNoteExpiry() {
+  const now = serverNow();
+  const cutoff = now - NOTE_TTL_MS;
+  let roomsChanged = false;
+  const changedDevices = [];
+
+  rooms.forEach(room => {
+    if (!Array.isArray(room.notes) || !room.notes.length) return;
+    const kept = room.notes.filter(note => noteTimestamp(note, now) >= cutoff);
+    if (kept.length !== room.notes.length) {
+      room.notes = kept;
+      roomsChanged = true;
+    }
+  });
+
+  Object.entries(devState).forEach(([devId, entry]) => {
+    if (!entry || !Array.isArray(entry.notes) || !entry.notes.length) return;
+    const kept = entry.notes.filter(note => noteTimestamp(note, now) >= cutoff);
+    if (kept.length !== entry.notes.length) {
+      entry.notes = kept;
+      changedDevices.push(devId);
+    }
+  });
+
+  return { roomsChanged, changedDevices };
+}
+
+/** Writes the pruned notes back, scoped as narrowly as each half allows.
+ *  Deliberately bypasses the applyingRemote guard for the same reason
+ *  persistExpiryCorrections() does: these corrections are computed while
+ *  processing a remote snapshot, but must still reach the server or the
+ *  expired notes live there forever and every client keeps re-adding them. */
+function persistNoteExpiry({ roomsChanged, changedDevices }) {
+  if (!roomsChanged && !changedDevices.length) return false;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload())); } catch (e) { /* ignore */ }
+  changedDevices.forEach(devId => {
+    const entry = devState[devId];
+    if (!entry) return;
+    set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(entry)))
+      .catch(e => reportSyncError('Could not remove an expired device note from the server.', e));
+  });
+  if (roomsChanged) {
+    // Room notes are part of the structural rooms tree — scoped to
+    // state/rooms rather than a whole-tree saveState().
+    set(ref(db, 'state/rooms'), JSON.parse(JSON.stringify(rooms)))
+      .catch(e => reportSyncError('Could not remove an expired room note from the server.', e));
+  }
+  return true;
+}
+
+/** Applies note expiry to the current state and persists any deletions.
+ *  Returns true if anything was removed (so callers can re-render). */
+export function runNoteExpiry() {
+  return persistNoteExpiry(applyNoteExpiry());
 }
 
 // ── teammate activity notifications ─────────────────────────────────

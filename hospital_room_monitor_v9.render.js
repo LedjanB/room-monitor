@@ -68,6 +68,21 @@ function formatSinceLabel(ts) {
   return `${when} (${ago})`;
 }
 
+/** Who may delete a given note: an admin (any note), or the person who
+ *  wrote it. Notes created from now on carry the author's uid; older ones
+ *  only have the username string, so fall back to matching on that. */
+export function canDeleteNote(note) {
+  if (!note) return false;
+  if (isAdmin()) return true;
+  const session = getAuthSession();
+  if (!session) return false;
+  if (note.authorId) return note.authorId === session.id;
+  return String(note.author || '').trim().toLowerCase()
+    === String(session.username || '').trim().toLowerCase();
+}
+
+const NOTE_TTL_HINT = 'Notes are removed automatically 48 hours after they are added.';
+
 function noteRows(notes = [], targetType, targetId, roomId = '') {
   if (!notes.length) return '<div class="note-empty">No notes yet.</div>';
   return `<div class="note-list">${notes.map(note => `
@@ -76,7 +91,7 @@ function noteRows(notes = [], targetType, targetId, roomId = '') {
         <div class="note-text">${esc(note.text || '')}</div>
         <div class="note-meta">${esc(note.author || 'Employee')} · ${esc(formatNoteDate(note.createdAt))}</div>
       </div>
-      ${isAdmin() ? `<button class="note-del" data-action="delete-note" data-note-target="${targetType}" data-target-id="${targetId}" data-room="${roomId}" data-note-id="${note.id}" title="Delete note">×</button>` : ''}
+      ${canDeleteNote(note) ? `<button class="note-del" data-action="delete-note" data-note-target="${targetType}" data-target-id="${targetId}" data-room="${roomId}" data-note-id="${note.id}" title="Delete note">×</button>` : ''}
     </div>`).join('')}</div>`;
 }
 
@@ -259,6 +274,10 @@ export function renderHeader() {
   </div>`;
 }
 
+// Which device types matter most when scanning results / "what's free
+// right now". Anything not listed sorts to the end.
+const SEARCH_TYPE_ORDER = { hello: 0, whiteboard: 1, tv: 2, roomsign: 3, bed: 4 };
+
 export function handleSearch(value) {
   const q = value.trim().toLowerCase();
   const sr = document.getElementById('searchResults');
@@ -330,15 +349,39 @@ export function handleSearch(value) {
     return;
   }
 
-  list.innerHTML = `<div class="sr-count">${results.length} result${results.length === 1 ? '' : 's'}</div>` + results.map(({ device, room, floor, meta, st }) => {
+  // Results (including Free Now, which is just this list with a status
+  // filter applied) lead with the devices people actually go looking for:
+  // Hellos first, then whiteboards, then TVs, then everything else.
+  results.sort((a, b) => {
+    const order = SEARCH_TYPE_ORDER[a.device.type] ?? 99;
+    const otherOrder = SEARCH_TYPE_ORDER[b.device.type] ?? 99;
+    if (order !== otherOrder) return order - otherOrder;
+    const floorName = a.floor?.name || '';
+    const otherFloorName = b.floor?.name || '';
+    if (floorName !== otherFloorName) return floorName.localeCompare(otherFloorName, undefined, { numeric: true });
+    if (a.room.name !== b.room.name) return a.room.name.localeCompare(b.room.name, undefined, { numeric: true });
+    return String(a.device.label || '').localeCompare(String(b.device.label || ''), undefined, { numeric: true });
+  });
+
+  let lastType = null;
+  const rows = results.map(({ device, room, floor, meta, st }) => {
     const since = meta.key !== STATUS.FREE && st.since ? `<span class="sr-since">${esc(formatSinceLabel(st.since))}</span>` : '';
-    return `<div class="sr-item" data-action="goto-device" data-device-id="${device.id}" data-room="${room.id}">
+    // A heading per type group, so the priority ordering reads as
+    // intentional rather than as an arbitrary shuffle.
+    const groupCount = results.filter(r => r.device.type === device.type).length;
+    const heading = device.type !== lastType
+      ? `<div class="sr-group">${typeLabel[device.type] || device.type} <span class="sr-group-n">${groupCount}</span></div>`
+      : '';
+    lastType = device.type;
+    return `${heading}<div class="sr-item" data-action="goto-device" data-device-id="${device.id}" data-room="${room.id}">
       <span class="sr-sn">${esc(device.sn || device.label)}</span>
       <span class="sr-meta">${esc(device.label)} · ${esc(room.name)} · ${floor ? esc(floor.name) : ''} · ${typeLabel[device.type]}</span>
       <span class="sr-status ${meta.className}">${esc(meta.label)}</span>
       ${since}
     </div>`;
   }).join('');
+
+  list.innerHTML = `<div class="sr-count">${results.length} result${results.length === 1 ? '' : 's'}</div>` + rows;
 }
 
 export function clearSearch() {
@@ -360,6 +403,9 @@ export function goToDevice(devId, roomId) {
   if (room.devices.some(device => device.id === devId && device.type !== 'bed')) {
     openPanel(devId, roomId);
   }
+  // render() re-creates the tiles, so the highlight has to be re-applied
+  // after that DOM swap settles (same 40ms beat as initDrag above).
+  setTimeout(() => updateSelectedDeviceVisual({ reveal: true }), 60);
 }
 
 export function switchFloor(floorId) {
@@ -493,7 +539,7 @@ export function renderRoom(room) {
     <div class="bed-list-item">
       <div>
         <div class="dev-list-name">${esc(device.label)}</div>
-        <div class="dev-list-type">Bed furniture · ${esc(device.sn || '')}</div>
+        <div class="dev-list-type">Bed furniture</div>
       </div>
       ${isAdmin() ? `<button class="btn-mini danger admin-only" data-action="delete-device" data-device-id="${device.id}" data-room="${room.id}" title="Delete bed">Delete</button>` : ''}
     </div>
@@ -562,6 +608,7 @@ export function renderRoom(room) {
         <div class="scard-title">Room Notes</div>
         ${noteRows(room.notes || [], 'room', room.id, room.id)}
         ${canAddNotes() ? `<div class="note-add-row"><textarea class="field-textarea" id="roomNoteInput_${room.id}" placeholder="Add a room note..."></textarea><button class="btn-sm ghost" data-action="add-note" data-note-target="room" data-target-id="${room.id}" data-room="${room.id}">Save Note</button></div>` : ''}
+        <div class="note-ttl-hint">${NOTE_TTL_HINT}</div>
       </div>
       <div class="scard">
         <div class="scard-title">Legend</div>
@@ -583,12 +630,22 @@ const GRID_SIZE = 2; // Very light hidden snap for more freedom
 let suppressDeviceClickUntil = 0;
 let activePanelDeviceId = null;
 
-function updateSelectedDeviceVisual() {
+function updateSelectedDeviceVisual({ reveal = false } = {}) {
   try {
     document.querySelectorAll('.device.is-selected').forEach(el => el.classList.remove('is-selected'));
     if (!activePanelDeviceId) return;
     const el = document.querySelector(`.device[data-device-id="${activePanelDeviceId}"]`);
-    if (el) el.classList.add('is-selected');
+    if (!el) return;
+    el.classList.add('is-selected');
+    // Arriving from a search result: the panel tells you *what* you picked,
+    // but not *which tile on the canvas* it is. Scroll it into view and
+    // replay the attention pulse so the answer is obvious.
+    if (reveal) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      el.classList.remove('just-revealed');
+      void el.offsetWidth; // restart the CSS animation
+      el.classList.add('just-revealed');
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -789,6 +846,7 @@ export function buildPanel(device, room) {
       <div class="psec-title">Device Notes</div>
       ${noteRows(st.notes || [], 'device', device.id, room.id)}
       ${canAddNotes() ? `<div class="note-add-row"><textarea class="field-textarea" id="deviceNoteInput_${device.id}" placeholder="Add a device note..."></textarea><button class="add-field-btn" data-action="add-note" data-note-target="device" data-target-id="${device.id}" data-device-id="${device.id}" data-room="${room.id}">Save Note</button></div>` : ''}
+      <div class="note-ttl-hint">${NOTE_TTL_HINT}</div>
     </div>`;
 
   const nameHTML = admin ? `

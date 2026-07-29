@@ -63,6 +63,7 @@ import {
   updateUnavailableReason,
   rebuildPanelForDevice,
   markPanelDirty,
+  canDeleteNote,
 } from './hospital_room_monitor_v9.render.js';
 
 let addDevRoomId = null;
@@ -189,6 +190,21 @@ function findDevice(roomId, devId) {
   return { room, device: room?.devices.find(device => device.id === devId) };
 }
 
+/** Beds have no serial number, so the SN field is hidden (and skipped by
+ *  the validator) whenever "Bed" is the selected type. */
+function syncAddDevTypeUI() {
+  const typeSelect = document.getElementById('addDevType');
+  const group = document.getElementById('addDevSNGroup');
+  if (!group) return;
+  const isBed = typeSelect?.value === 'bed';
+  group.hidden = isBed;
+  if (isBed) {
+    const snInput = document.getElementById('addDevSN');
+    if (snInput) snInput.value = '';
+    clearError(snInput, document.getElementById('addDevSNErr'));
+  }
+}
+
 export function openAddDevModal(roomId) {
   if (!isAdminRole()) return;
   addDevRoomId = roomId;
@@ -199,6 +215,7 @@ export function openAddDevModal(roomId) {
   if (nameInput) nameInput.value = '';
   if (snInput) snInput.value = '';
   clearError(snInput, errorEl);
+  syncAddDevTypeUI();
 
   const modal = document.getElementById('addDevModal');
   if (modal) modal.classList.add('open');
@@ -221,10 +238,16 @@ export function confirmAddDevice() {
     return;
   }
 
-  const snResult = validateSerialNumber(snInput?.value);
-  if (!snResult.valid) {
-    markError(snInput, errorEl, snResult.message);
-    return;
+  // Beds are furniture, not tracked equipment — no serial number to
+  // validate, and the SN field is hidden for them (see syncAddDevTypeUI).
+  let sn = '';
+  if (type !== 'bed') {
+    const snResult = validateSerialNumber(snInput?.value);
+    if (!snResult.valid) {
+      markError(snInput, errorEl, snResult.message);
+      return;
+    }
+    sn = snResult.value;
   }
 
   const room = rooms.find(room => room.id === addDevRoomId);
@@ -239,7 +262,7 @@ export function confirmAddDevice() {
     id,
     type,
     label: name,
-    sn: snResult.value,
+    ...(sn ? { sn } : {}),
     x: 50,
     y: 40,
     w: def.w,
@@ -266,22 +289,16 @@ export function addBedToRoom(roomId) {
   const bedCount = room.devices.filter(device => device.type === 'bed').length;
   const id = uid('bed');
   const def = typeDefaults.bed || { w: 20, h: 52 };
-  let sn = `SN-BED-${id.toUpperCase()}`;
-  const allSNs = getAllSNs();
-  // getAllSNs() normalizes to uppercase, and sn is already uppercase here —
-  // comparing against sn.toLowerCase() meant this could never match.
-  while (allSNs.has(sn)) {
-    sn = `SN-BED-${uid('bed').toUpperCase()}`;
-  }
 
   const xOptions = [35, 8, 68, 22, 52];
   const yOptions = [36, 34, 34, 38, 38];
   const slot = bedCount % xOptions.length;
+  // No serial number: a bed is room furniture, not tracked equipment —
+  // it has no status, no detail panel and nothing to look up by SN.
   const device = {
     id,
     type: 'bed',
     label: `Bed ${bedCount + 1}`,
-    sn,
     x: xOptions[slot],
     y: yOptions[slot],
     w: def.w,
@@ -742,12 +759,18 @@ function addNote(target, event) {
     return;
   }
 
-  const who = getAuthSession()?.username || (isAdminSession() ? 'Admin' : 'Employee');
+  const session = getAuthSession();
+  const who = session?.username || (isAdminSession() ? 'Admin' : 'Employee');
   const note = {
     id: noteUid(),
     text,
     author: who,
-    createdAt: new Date().toISOString(),
+    // The uid is what canDeleteNote() matches on — a username can be
+    // reused/renamed, and it's also what the 48h expiry sweep reads.
+    authorId: session?.id || '',
+    // Server-corrected clock, so a machine with a wrong date can't post a
+    // note that outlives the 48h window (or vanishes immediately).
+    createdAt: new Date(serverNow()).toISOString(),
   };
 
   if (noteTarget === 'room') {
@@ -779,11 +802,22 @@ function addNote(target, event) {
 }
 
 function deleteNote(target) {
-  if (!isAdminRole()) return;
   const noteTarget = target.dataset.noteTarget;
   const targetId = target.dataset.targetId;
   const roomId = target.dataset.room;
   const noteId = target.dataset.noteId;
+
+  // Admins can delete any note; everyone else only their own. The button
+  // is already hidden otherwise (see noteRows), but re-check here so the
+  // rule holds even if the markup is stale or tampered with.
+  const notes = noteTarget === 'room'
+    ? (findRoom(targetId)?.notes || [])
+    : (getDeviceState(targetId).notes || []);
+  const note = notes.find(entry => entry.id === noteId);
+  if (!note || !canDeleteNote(note)) {
+    showToast('You can only delete notes you added.', 'error');
+    return;
+  }
 
   openConfirm({
     title: 'Delete Note',
@@ -858,8 +892,33 @@ function clearSearchFilters() {
   saveLocalUIState();
 }
 
+// Clicking the dimmed area around a modal closes it, the same way Escape
+// does. Guarded on the pointerdown target so a drag that *starts* inside
+// the dialog (selecting text, then releasing over the backdrop) doesn't
+// count as an outside click.
+let backdropPressTarget = null;
+
+function handleBackdropPointerDown(event) {
+  backdropPressTarget = event.target;
+}
+
+function closeOpenModal(modalBg) {
+  if (modalBg.id === 'confirmModal') closeConfirm();
+  else closeModal(modalBg.id);
+}
+
 function handleClick(event) {
   const target = event.target?.nodeType === 3 ? event.target.parentNode : event.target;
+
+  if (
+    target?.classList?.contains('modal-bg') &&
+    target.classList.contains('open') &&
+    backdropPressTarget === target
+  ) {
+    closeOpenModal(target);
+    return;
+  }
+
   const actionEl = target?.closest?.('[data-action]');
   const action = actionEl ? actionEl.dataset.action : null;
 
@@ -1305,6 +1364,11 @@ export function initApp() {
       return;
     }
 
+    if (target.id === 'addDevType') {
+      syncAddDevTypeUI();
+      return;
+    }
+
     if (target.dataset.action === 'change-user-role') {
       const userId  = target.dataset.userId;
       const newRole = target.value;
@@ -1421,6 +1485,7 @@ export function initApp() {
     }
   });
 
+  document.addEventListener('pointerdown', handleBackdropPointerDown, true);
   document.addEventListener('dragstart', handleRoomDragStart);
   document.addEventListener('dragover', handleRoomDragOver);
   document.addEventListener('dragenter', handleRoomDragEnter);

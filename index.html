@@ -52,7 +52,8 @@
         <label class="field-label">Device Name / Label</label>
         <input class="field-input" id="addDevName" placeholder="e.g. Hello 5" />
       </div>
-      <div class="field-group">
+      <!-- Hidden for beds — furniture has no serial number. See syncAddDevTypeUI(). -->
+      <div class="field-group" id="addDevSNGroup">
         <label class="field-label">Serial Number (SN)</label>
         <input class="field-input" id="addDevSN" placeholder="e.g. SN-ABC12345" />
         <span class="field-error" id="addDevSNErr" style="display:none;"></span>
