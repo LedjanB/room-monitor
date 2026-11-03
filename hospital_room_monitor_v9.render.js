@@ -515,18 +515,13 @@ export function switchFloor(floorId) {
   render();
 }
 
-export function isWideFloorLayout() {
-  return window.matchMedia('(min-width: 1280px)').matches;
-}
-
 export function renderCorridor() {
   const currentFloor = floors.find(floor => floor.id === state.currentFloorId) || floors[0];
   const floorRooms = rooms.filter(room => room.floorId === state.currentFloorId);
   const leftRooms = floorRooms.filter(room => room.side === 'left').sort((a, b) => a.pos - b.pos);
   const rightRooms = floorRooms.filter(room => room.side === 'right').sort((a, b) => a.pos - b.pos);
-  // Wide screens put two rooms per side in each row, so the floor uses the
-  // width instead of being a narrow column with empty margins.
-  const perSide = isWideFloorLayout() ? 2 : 1;
+  // One room per side per row: the floor view mirrors the real corridor.
+  const perSide = 1;
   const rowCount = Math.max(Math.ceil(Math.max(leftRooms.length, rightRooms.length) / perSide), 1);
 
   const floorTabs = floors.map(floor => `
@@ -575,7 +570,7 @@ export function renderCorridor() {
       }
       return html;
     };
-    rows += `<div class="floor-row${perSide > 1 ? ' wide' : ''}">
+    rows += `<div class="floor-row">
       <div class="room-cell lc">${slotsFor('left', leftRooms)}</div>
       <div class="corridor-col"><div class="corridor-line"></div></div>
       <div class="room-cell rc">${slotsFor('right', rightRooms)}</div>

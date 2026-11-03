@@ -410,5 +410,3 @@ would need rethinking if this ever handled anything actually sensitive or advers
     script in `index.html` and kept in sync by `applyTheme()` (render.js). The header
     button cycles Auto → Light → Dark, stored in `localStorage` (`hrm-theme`). All dark
     styles are `:root[data-theme="dark"] …` overrides at the end of the CSS.
-17. **Wide floor view.** At ≥1280px the floor shows two rooms per side per row
-    (`isWideFloorLayout()`); slot indexes stay sequential so room drag/drop is unchanged.

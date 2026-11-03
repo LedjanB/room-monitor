@@ -1503,12 +1503,6 @@ body{
 .panel-danger .btn-sm{color:var(--red);border-color:var(--red-border);}
 .panel-danger .btn-sm:hover{background:var(--red-bg);opacity:1;}
 
-/* Wide floor view: 2 rooms per side per row */
-.floor-plan:has(.floor-row.wide){max-width:1240px;}
-.floor-row.wide .room-cell{gap:10px;align-items:stretch;}
-.floor-row.wide .room-slot > .room-btn,.floor-row.wide .room-slot > .empty-cell{height:100%;}
-.floor-row.wide .room-slot{flex:1 1 0;max-width:300px;}
-.floor-row.wide .room-cell.lc{justify-content:flex-end;}
 
 /* Phone: Room Info (just counts) and the drag hint are noise here, so the
    device list comes right after the room. Names on tiles are too cramped. */

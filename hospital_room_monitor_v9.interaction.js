@@ -1662,10 +1662,6 @@ export function initApp() {
   applyTheme();
   // "Auto" follows the OS live, e.g. when Windows switches to dark at night.
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
-  // Floor view switches between 1 and 2 rooms per side at 1280px.
-  window.matchMedia('(min-width: 1280px)').addEventListener('change', () => {
-    if (!state.currentRoom && document.querySelector('.floor-plan')) render();
-  });
 }
 
 // Browser Back used to leave the app entirely. Now it steps back inside
