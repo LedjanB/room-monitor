@@ -922,6 +922,16 @@ export function buildPanel(device, room) {
     </div>
   ` : '';
 
+  const editIcon = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2l3 3-8 8H1v-3l8-8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
+  const snRowHTML = (admin && device.type !== 'bed')
+    ? `<div class="pkv" id="snView_${device.id}"><span class="pkv-k">Serial No.</span><span class="pkv-v">${esc(device.sn || '-')}<button class="edit-name-btn edit-sn-btn" data-action="start-edit-sn" data-device-id="${device.id}" data-room="${room.id}" title="Edit serial number" aria-label="Edit serial number">${editIcon}</button></span></div>`
+    : `<div class="pkv"><span class="pkv-k">Serial No.</span><span class="pkv-v">${esc(device.sn || '-')}</span></div>`;
+
+  const dangerZone = admin ? `
+    <div class="psec panel-danger">
+      <button class="btn-sm ghost danger" data-action="delete-device" data-device-id="${device.id}" data-room="${room.id}">${device.type === 'bed' ? 'Delete Bed' : 'Delete Device'}</button>
+    </div>` : '';
+
   const panelEl = document.getElementById('panelEl');
   if (!panelEl) return;
 
@@ -938,7 +948,7 @@ export function buildPanel(device, room) {
       <div class="panel-type">${typeLabel[device.type]} · ${esc(room.name)}</div>
       <div class="psec">
         <div class="psec-title">Device Info</div>
-        <div class="pkv"><span class="pkv-k">Serial No.</span><span class="pkv-v">${esc(device.sn || '-')}</span></div>
+        ${snRowHTML}
         <div class="pkv"><span class="pkv-k">Type</span><span class="pkv-v">${typeLabel[device.type]}</span></div>
         <div class="pkv"><span class="pkv-k">Room</span><span class="pkv-v">${esc(room.name)}</span></div>
         ${customInfoHTML}
@@ -946,6 +956,7 @@ export function buildPanel(device, room) {
       ${statusDetails}
       ${notesSection}
       ${saveChangesBar}
+      ${dangerZone}
     </div>`;
 }
 
@@ -959,6 +970,25 @@ export function startEditDevName(devId, roomId) {
     <input class="inline-edit" id="nameInput_${devId}" value="${esc(device.label)}" data-action="save-dev-name" data-device-id="${devId}" data-room="${roomId}" />
     <button class="inline-save" data-action="save-dev-name" data-device-id="${devId}" data-room="${roomId}">Save</button>`;
   const input = document.getElementById(`nameInput_${devId}`);
+  if (input) {
+    input.focus();
+    input.select();
+  }
+}
+
+export function startEditDevSn(devId, roomId) {
+  const room = rooms.find(room => room.id === roomId);
+  const device = room && room.devices.find(device => device.id === devId);
+  if (!device) return;
+  const row = document.getElementById(`snView_${devId}`);
+  if (!row) return;
+  row.innerHTML = `
+    <span class="pkv-k">Serial No.</span>
+    <span class="pkv-v sn-edit-wrap">
+      <input class="inline-edit sn-inline-edit" id="snInput_${devId}" value="${esc(device.sn || '')}" data-action="save-dev-sn" data-device-id="${devId}" data-room="${roomId}" />
+      <button class="inline-save" data-action="save-dev-sn" data-device-id="${devId}" data-room="${roomId}">Save</button>
+    </span>`;
+  const input = document.getElementById(`snInput_${devId}`);
   if (input) {
     input.focus();
     input.select();

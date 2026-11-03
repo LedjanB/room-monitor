@@ -56,6 +56,8 @@ import {
   savePanel,
   startEditDevName,
   saveDevName,
+  startEditDevSn,
+  refreshDeviceVisual,
   initDrag,
   updateDeviceStatus,
   commitDeviceStatus,
@@ -172,6 +174,33 @@ function validateSerialNumber(value) {
   if (!/^[A-Z0-9._-]+$/.test(sn)) return { valid: false, message: 'Serial number can only use letters, numbers, dots, underscores, and hyphens.' };
   if (getAllSNs().has(sn)) return { valid: false, message: 'This serial number already exists. Use a unique serial number.' };
   return { valid: true, value: sn };
+}
+
+function saveDevSn(devId, roomId) {
+  if (!isAdminRole()) return;
+  const room = rooms.find(room => room.id === roomId);
+  const device = room && room.devices.find(device => device.id === devId);
+  if (!device) return;
+  const input = document.getElementById(`snInput_${devId}`);
+  if (!input) return;
+  const next = normalizeText(input.value).toUpperCase();
+  // Unchanged: just close the editor. Checked before validation, otherwise
+  // the device's own serial would trip the "already exists" check.
+  if (next === String(device.sn || '').toUpperCase()) {
+    rebuildPanelForDevice(devId, roomId);
+    return;
+  }
+  const result = validateSerialNumber(next);
+  if (!result.valid) {
+    showToast(result.message, 'error');
+    input.focus();
+    return;
+  }
+  device.sn = result.value;
+  refreshDeviceVisual(devId);
+  rebuildPanelForDevice(devId, roomId);
+  saveState();
+  showToast('Serial number saved.');
 }
 
 function cleanupDeviceData(devId) {
@@ -1162,6 +1191,8 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
+  'start-edit-sn': target => startEditDevSn(getDeviceId(target), target.dataset.room),
+  'save-dev-sn': target => saveDevSn(getDeviceId(target), target.dataset.room),
   'clear-filters': () => clearSearchFilters(),
   'show-free-now': () => showFreeNow(),
   'cycle-status': target => cycleDeviceStatus(getDeviceId(target), target.dataset.room),
@@ -1532,6 +1563,10 @@ export function initApp() {
         document.querySelector('[data-action="do-setup"]')?.click();
         return;
       }
+    }
+    if (target?.dataset?.action === 'save-dev-sn' && event.key === 'Enter') {
+      saveDevSn(getDeviceId(target), target.dataset.room);
+      return;
     }
     if (target?.dataset?.action === 'save-dev-name' && event.key === 'Enter') {
       saveDevName(getDeviceId(target), target.dataset.room);

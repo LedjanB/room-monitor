@@ -494,8 +494,15 @@ input:checked+.toggle-slider:before{transform:translateX(18px);background:var(--
 .btn-cancel:hover{background:var(--bg);}
 
 /* device delete button */
-.dev-actions{position:absolute;top:-9px;right:-9px;z-index:20;display:none;}
-.device:hover .dev-actions{display:flex;}
+/* The device box itself has pointer-events:none (only the drawn shape is
+   hoverable), so moving from the shape out to this corner button used to
+   un-hover the device and hide the X before the cursor got there. Now the
+   X lingers for a moment after leaving, stays while hovered itself, and
+   has a bigger invisible hit area around the red dot. */
+.dev-actions{position:absolute;top:-16px;right:-16px;z-index:40;display:flex;padding:7px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility 0s linear .7s;}
+.device:hover .dev-actions,
+.device:focus-within .dev-actions,
+.dev-actions:hover{opacity:1;visibility:visible;transition-delay:0s;}
 .dev-del-btn{width:18px;height:18px;border-radius:50%;background:var(--red);border:none;color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.35);}
 .dev-quick-toggle{position:absolute;left:-6px;bottom:-6px;width:16px;height:16px;border-radius:50%;border:2px solid #fff;cursor:pointer;z-index:20;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.4);}
 .dev-quick-toggle.avail{background:var(--green);}
@@ -628,7 +635,7 @@ body.viewer .admin-only{display:none !important;}
 .btn-mini{font-family:inherit;font-size:11px;font-weight:800;border:1.5px solid var(--border);border-radius:6px;background:#fff;color:var(--text2);padding:5px 8px;cursor:pointer;white-space:nowrap;}
 .btn-mini:hover{background:var(--bg);border-color:var(--text3);color:var(--text);}
 .btn-mini.danger:hover{background:var(--red-bg);border-color:var(--red);color:var(--red);}
-body:not(.viewer) .device[data-type="bed"] .dev-actions{display:flex;}
+body:not(.viewer) .device[data-type="bed"] .dev-actions{opacity:1;visibility:visible;}
 body:not(.viewer) .device[data-type="bed"] .dev-del-btn{width:20px;height:20px;font-size:13px;box-shadow:0 1px 6px rgba(0,0,0,.28);}
 
 
@@ -1451,3 +1458,11 @@ body{
     transform:none;
   }
 }
+
+/* Device panel: editable serial + delete */
+.edit-sn-btn{margin-left:4px;vertical-align:middle;}
+.sn-edit-wrap{display:flex;gap:6px;align-items:center;}
+.sn-inline-edit{font-size:13px;min-width:0;width:140px;}
+.edit-name-btn{color:var(--text3);}
+.panel-danger{border-top:1px solid var(--bg3);padding-top:14px;}
+.panel-danger .btn-sm{width:100%;}
