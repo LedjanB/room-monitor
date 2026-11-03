@@ -237,6 +237,7 @@ body:not(.dragging-room) .empty-cell span{display:none;}
 .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
 .legend-dot.g{background:var(--green);}
 .legend-dot.r{background:var(--red);}
+.legend-dot.o{background:var(--orange);}
 .legend-lbl{font-size:13px;font-weight:700;color:var(--text2);}
 
 /* device list in sidebar */
@@ -499,10 +500,15 @@ input:checked+.toggle-slider:before{transform:translateX(18px);background:var(--
    un-hover the device and hide the X before the cursor got there. Now the
    X lingers for a moment after leaving, stays while hovered itself, and
    has a bigger invisible hit area around the red dot. */
-.dev-actions{position:absolute;top:-16px;right:-16px;z-index:40;display:flex;padding:7px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility 0s linear .7s;}
-.device:hover .dev-actions,
-.device:focus-within .dev-actions,
-.dev-actions:hover{opacity:1;visibility:visible;transition-delay:0s;}
+.dev-actions{position:absolute;top:-16px;right:-16px;z-index:40;display:flex;padding:5px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility 0s linear .7s;}
+@media (hover: hover){
+  .device:hover .dev-actions,
+  .device:focus-within .dev-actions,
+  .dev-actions:hover{opacity:1;visibility:visible;transition-delay:0s;}
+}
+/* Touch screens: a tap "sticks" as hover and the X would cover a
+   neighbour's status dot. Delete from the device panel instead. */
+@media (hover: none){ .dev-actions{display:none;} }
 .dev-del-btn{width:18px;height:18px;border-radius:50%;background:var(--red);border:none;color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.35);}
 .dev-quick-toggle{position:absolute;left:-6px;bottom:-6px;width:16px;height:16px;border-radius:50%;border:2px solid #fff;cursor:pointer;z-index:20;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.4);}
 .dev-quick-toggle.avail{background:var(--green);}
@@ -635,7 +641,6 @@ body.viewer .admin-only{display:none !important;}
 .btn-mini{font-family:inherit;font-size:11px;font-weight:800;border:1.5px solid var(--border);border-radius:6px;background:#fff;color:var(--text2);padding:5px 8px;cursor:pointer;white-space:nowrap;}
 .btn-mini:hover{background:var(--bg);border-color:var(--text3);color:var(--text);}
 .btn-mini.danger:hover{background:var(--red-bg);border-color:var(--red);color:var(--red);}
-body:not(.viewer) .device[data-type="bed"] .dev-actions{opacity:1;visibility:visible;}
 body:not(.viewer) .device[data-type="bed"] .dev-del-btn{width:20px;height:20px;font-size:13px;box-shadow:0 1px 6px rgba(0,0,0,.28);}
 
 
@@ -1280,6 +1285,17 @@ body{
 .device > .bed-shape,
 .device > .dev-actions,
 .device > .dev-quick-toggle{pointer-events:auto;}
+/* The generic [title]{position:relative} tooltip rule was beating the
+   dot's position:absolute (same specificity, later in the file), which
+   put the dot in normal flow: on top of the tile, pushing the drawing down
+   ~20px, and on a TV, underneath the Hello sitting on its top edge. */
+.device > .dev-quick-toggle{position:absolute;}
+/* ...but every layout on the live board was arranged with that 20px push
+   baked in, so keep the drawing exactly where people placed it. */
+.device > .dev-quick-toggle ~ .tv-outer,
+.device > .dev-quick-toggle ~ .hello-shape,
+.device > .dev-quick-toggle ~ .wb-shape,
+.device > .dev-quick-toggle ~ .rsign-shape{margin-top:20px;}
 
 .device[data-type="bed"]{z-index:4;}
 .device[data-type="tv"]{z-index:8;}
@@ -1466,3 +1482,118 @@ body{
 .edit-name-btn{color:var(--text3);}
 .panel-danger{border-top:1px solid var(--bg3);padding-top:14px;}
 .panel-danger .btn-sm{width:100%;}
+
+/* Status: three one-tap buttons (was a dropdown) */
+.status-pick{display:flex;gap:6px;}
+.status-pick-btn{flex:1;font-family:inherit;font-size:12.5px;font-weight:800;padding:9px 6px;border-radius:8px;border:1.5px solid var(--border);background:var(--panel-bg);color:var(--text2);cursor:pointer;transition:background .12s,border-color .12s,color .12s;}
+.status-pick-btn:hover{border-color:var(--text3);}
+.status-pick-btn.avail.is-on{background:var(--green-bg);border-color:var(--green-border);color:var(--green);}
+.status-pick-btn.inuse.is-on{background:var(--red-bg);border-color:var(--red-border);color:var(--red);}
+.status-pick-btn.notavail.is-on{background:var(--orange-bg);border-color:var(--orange-border);color:var(--orange);}
+.status-pick-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+/* Readable device names on the canvas */
+.tv-label-text{font-size:10px;bottom:6px;left:8px;color:rgba(255,255,255,.75);}
+.dev-name-tag{position:absolute;left:50%;top:0;transform:translate(-50%,-100%);font-size:10px;font-weight:800;line-height:1;white-space:nowrap;color:var(--text2);background:var(--panel-bg);border:1px solid var(--border);border-radius:4px;padding:2px 5px;pointer-events:none;z-index:2;opacity:.92;}
+
+/* Delete inside Edit popups: pushed left, away from Save */
+.btn-delete-left{margin-right:auto;white-space:nowrap;font-family:inherit;font-size:14px;font-weight:700;background:none;color:var(--red);border:1.5px solid transparent;border-radius:7px;padding:10px 12px;cursor:pointer;}
+.btn-delete-left:hover{background:var(--red-bg);border-color:var(--red-border);}
+/* Panel delete button reads as destructive */
+.panel-danger .btn-sm{color:var(--red);border-color:var(--red-border);}
+.panel-danger .btn-sm:hover{background:var(--red-bg);opacity:1;}
+
+/* Wide floor view: 2 rooms per side per row */
+.floor-plan:has(.floor-row.wide){max-width:1240px;}
+.floor-row.wide .room-cell{gap:10px;align-items:stretch;}
+.floor-row.wide .room-slot > .room-btn,.floor-row.wide .room-slot > .empty-cell{height:100%;}
+.floor-row.wide .room-slot{flex:1 1 0;max-width:300px;}
+.floor-row.wide .room-cell.lc{justify-content:flex-end;}
+
+/* Phone: Room Info (just counts) and the drag hint are noise here, so the
+   device list comes right after the room. Names on tiles are too cramped. */
+@media (max-width: 600px){
+  .room-info-card{display:none;}
+  .room-sub{display:none;}
+  .dev-name-tag{display:none;}
+}
+
+/* ═════════════════════════════════════════════════════════════════
+   DARK THEME. <html data-theme="dark"> is set by the theme picker in
+   the header (System / Light / Dark); "System" follows the OS. Device
+   screens that are physically light (whiteboard, room sign) stay light.
+   ═════════════════════════════════════════════════════════════════ */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#121513;--bg2:#1a1e1b;--bg3:#262b27;
+  --border:#2f3531;--border2:#464d48;
+  --text:#eef1ee;--text2:#d1d6d1;--text3:#9ba39c;--text4:#6f776f;
+  --panel-bg:#1b1f1c;
+  --green:#5cc983;--green-bg:#16301f;--green-border:#2e6a44;
+  --red:#f07a6e;--red-bg:#381a17;--red-border:#7a3630;
+  --orange:#f0a640;--orange-bg:#372812;--orange-border:#7a5520;
+  --warning:#f0b860;--warning-bg:#372812;--warning-border:#7a5520;
+  --accent:#6c9bff;--accent-bg:#1a2640;
+}
+:root[data-theme="dark"] body{background:linear-gradient(180deg,#121513 0%,#0f1210 100%);}
+:root[data-theme="dark"] .hdr{background:#0a0c0b;color:#eef1ee;box-shadow:0 1px 0 rgba(255,255,255,.06);}
+:root[data-theme="dark"] .breadcrumb{background:rgba(22,26,23,.75);border-bottom-color:rgba(255,255,255,.06);}
+:root[data-theme="dark"] .floor-plan{background:linear-gradient(180deg,#181c19,#151916);border-color:#2b312d;box-shadow:0 16px 40px rgba(0,0,0,.35);}
+:root[data-theme="dark"] .cap{background:#3a413c;}
+:root[data-theme="dark"] .floor-row{border-bottom-color:rgba(255,255,255,.05);}
+:root[data-theme="dark"] .corridor-col{background:linear-gradient(to bottom,#1d221e,#191d1a);border-color:#2f3531;}
+:root[data-theme="dark"] .room-btn{background:rgba(32,37,33,.95);border-color:#323933;color:var(--text);}
+:root[data-theme="dark"] .room-btn:hover{background:#252b26;border-color:#46504a;box-shadow:0 10px 28px rgba(0,0,0,.35);}
+:root[data-theme="dark"] .empty-cell{border-color:#323933;}
+:root[data-theme="dark"] .floor-tab{background:rgba(32,37,33,.95);border-color:#323933;color:var(--text2);}
+:root[data-theme="dark"] .floor-tab.active{background:var(--text);border-color:var(--text);color:#111412;}
+:root[data-theme="dark"] .floor-tab.active,
+:root[data-theme="dark"] .btn-sm:not(.ghost),
+:root[data-theme="dark"] .btn-primary,
+:root[data-theme="dark"] .inline-save,
+:root[data-theme="dark"] .panel-x:hover,
+:root[data-theme="dark"] .pos-opt:hover,
+:root[data-theme="dark"] .pos-opt.sel,
+:root[data-theme="dark"] .btn-mini.primary{color:#111412;}
+:root[data-theme="dark"] .btn-sm.ghost,
+:root[data-theme="dark"] .btn-cancel,
+:root[data-theme="dark"] .btn-mini{background:rgba(32,37,33,.9);color:var(--text);border-color:var(--border2);}
+:root[data-theme="dark"] .rstatus-pill{background:rgba(0,0,0,.25);}
+:root[data-theme="dark"] .room-area{background:linear-gradient(180deg,#1a1e1b,#161a17);border-color:#2f3531;}
+:root[data-theme="dark"] .wall-top,:root[data-theme="dark"] .wall-left,
+:root[data-theme="dark"] .wall-right,:root[data-theme="dark"] .wall-bottom{background:#4b544d;}
+:root[data-theme="dark"] .scard,
+:root[data-theme="dark"] .psec{background:rgba(32,37,33,.92);border-color:#2f3531;}
+:root[data-theme="dark"] .srow,:root[data-theme="dark"] .dev-list-item,
+:root[data-theme="dark"] .bed-list-item,:root[data-theme="dark"] .pkv{border-bottom-color:rgba(255,255,255,.06);}
+:root[data-theme="dark"] .dev-status-inline{background:#1f2420;border-color:#323933;}
+:root[data-theme="dark"] .panel{background:#161a17;border-color:#2f3531;}
+:root[data-theme="dark"] .panel-hdr{background:#161a17;border-color:#2f3531;}
+:root[data-theme="dark"] .panel-body{background:linear-gradient(180deg,#161a17 0%,#131714 100%);}
+:root[data-theme="dark"] .panel-bg{background:rgba(0,0,0,.45);}
+:root[data-theme="dark"] .field-input,:root[data-theme="dark"] .field-select,
+:root[data-theme="dark"] .field-textarea,:root[data-theme="dark"] .emp-input,
+:root[data-theme="dark"] .custom-field input,:root[data-theme="dark"] .inline-edit{background:#121513;color:var(--text);border-color:var(--border2);}
+:root[data-theme="dark"] .note-item,:root[data-theme="dark"] .note-empty{background:#1c211d;border-color:#2f3531;color:var(--text2);}
+:root[data-theme="dark"] .add-field-btn{background:#1c211d;border-color:var(--border2);color:var(--text2);}
+:root[data-theme="dark"] .modal,:root[data-theme="dark"] .search-results{border-color:var(--border2);}
+:root[data-theme="dark"] .auth-card{box-shadow:0 4px 24px rgba(0,0,0,.4);}
+:root[data-theme="dark"] .view-notice{background:#2e2810;border-color:#6b5a1c;color:#f0d878;}
+:root[data-theme="dark"] .toast{background:#262c28;color:#fff;}
+:root[data-theme="dark"] .toast.success{background:#1f6b3a;}
+:root[data-theme="dark"] .toast.error{background:#8a2a22;}
+:root[data-theme="dark"] .room-sub,:root[data-theme="dark"] .scard-title,
+:root[data-theme="dark"] .panel-type,:root[data-theme="dark"] .psec-title{color:var(--text3);}
+:root[data-theme="dark"] .dev-quick-toggle{border-color:#1b1f1c;}
+
+/* Theme picker in the header */
+.hdr-theme-btn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:5px;padding:4px 8px;cursor:pointer;color:#fff;display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11px;font-weight:800;letter-spacing:.03em;transition:background .12s;}
+.hdr-theme-btn:hover{background:rgba(255,255,255,.22);}
+.hdr-theme-btn svg{display:block;}
+@media (max-width: 600px){.hdr-theme-btn .hdr-theme-lbl{display:none;}}
+/* With a status dot, the drawing sits 20px down (see above): put the name
+   in that free strip right above it instead of over the wall/neighbour. */
+.device > .dev-quick-toggle ~ .dev-name-tag{top:2px;transform:translateX(-50%);}
+.dev-actions{top:-6px;right:-16px;}
+:root[data-theme="dark"] .tv-outer{box-shadow:0 0 0 1px rgba(255,255,255,.08),2px 3px 0 rgba(0,0,0,.4);}
+@media (max-width: 980px){ .room-wrap > .room-canvas{width:100%;} }

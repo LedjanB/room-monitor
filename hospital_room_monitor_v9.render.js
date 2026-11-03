@@ -291,6 +291,7 @@ export function deviceHTML(dev, room) {
     ${quickToggle}
     <div class="viewer-lock"></div>
     ${inner}
+    ${(dev.type === 'hello' || dev.type === 'whiteboard' || dev.type === 'roomsign') ? `<span class="dev-name-tag">${esc(dev.label)}</span>` : ''}
   </div>`;
 }
 
@@ -323,6 +324,7 @@ export function renderHeader() {
       <button class="hdr-quick-btn${state.searchFilters?.status === STATUS.FREE ? ' active' : ''}" data-action="show-free-now" type="button" title="Show every free device across all floors">Free Now</button>
       <div class="hdr-pill">${floorRooms.length} ROOMS</div>
       <div class="hdr-pill">${tot} DEVICES</div>
+      ${themeButtonHTML()}
       ${session ? `
         <button class="hdr-bell-btn" data-action="open-notifications" type="button" title="Recent activity">
           🔔<span class="hdr-bell-badge" id="notifBadge" ${unread === 0 ? 'hidden' : ''}>${unread > 99 ? '99+' : unread}</span>
@@ -336,6 +338,39 @@ export function renderHeader() {
       ` : ''}
     </div>
   </div>`;
+}
+
+// ── Theme (System / Light / Dark) ──────────────────────────────────
+const THEME_KEY = 'hrm-theme';
+const THEME_ORDER = ['system', 'light', 'dark'];
+export function getThemePref() {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    return THEME_ORDER.includes(v) ? v : 'system';
+  } catch (e) { return 'system'; }
+}
+export function applyTheme() {
+  const pref = getThemePref();
+  const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+}
+export function cycleTheme() {
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(getThemePref()) + 1) % THEME_ORDER.length];
+  try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
+  applyTheme();
+  const btn = document.querySelector('.hdr-theme-btn');
+  if (btn) btn.outerHTML = themeButtonHTML();
+  return next;
+}
+function themeButtonHTML() {
+  const pref = getThemePref();
+  const icon = {
+    system: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 14h5M8 11.5V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    light: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    dark: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a6 6 0 1 0 7 7z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+  }[pref];
+  const label = { system: 'Auto', light: 'Light', dark: 'Dark' }[pref];
+  return `<button class="hdr-theme-btn" data-action="cycle-theme" type="button" title="Theme: ${label} (click to change)" aria-label="Theme: ${label}. Click to change.">${icon}<span class="hdr-theme-lbl">${label}</span></button>`;
 }
 
 // Which device types matter most when scanning results / "what's free
@@ -480,12 +515,19 @@ export function switchFloor(floorId) {
   render();
 }
 
+export function isWideFloorLayout() {
+  return window.matchMedia('(min-width: 1280px)').matches;
+}
+
 export function renderCorridor() {
   const currentFloor = floors.find(floor => floor.id === state.currentFloorId) || floors[0];
   const floorRooms = rooms.filter(room => room.floorId === state.currentFloorId);
   const leftRooms = floorRooms.filter(room => room.side === 'left').sort((a, b) => a.pos - b.pos);
   const rightRooms = floorRooms.filter(room => room.side === 'right').sort((a, b) => a.pos - b.pos);
-  const rowCount = Math.max(leftRooms.length, rightRooms.length, 1);
+  // Wide screens put two rooms per side in each row, so the floor uses the
+  // width instead of being a narrow column with empty margins.
+  const perSide = isWideFloorLayout() ? 2 : 1;
+  const rowCount = Math.max(Math.ceil(Math.max(leftRooms.length, rightRooms.length) / perSide), 1);
 
   const floorTabs = floors.map(floor => `
     <button class="floor-tab${floor.id === state.currentFloorId ? ' active' : ''}" data-action="switch-floor" data-floor="${floor.id}">${esc(floor.name)}</button>
@@ -493,9 +535,7 @@ export function renderCorridor() {
 
   let rows = '';
 
-  for (let index = 0; index < rowCount; index++) {
-    const leftRoom = leftRooms[index];
-    const rightRoom = rightRooms[index];
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
 
     const renderCell = room => {
       if (!room) {
@@ -505,7 +545,7 @@ export function renderCorridor() {
       const counts = getRoomStatusCounts(room);
       const statusSummary = `<div class="rstatus-summary">
         <span class="rstatus-pill avail">${counts.free || 0} Free</span>
-        <span class="rstatus-pill inuse">${counts.inuse || 0} In Use</span>
+        ${counts.inuse ? `<span class="rstatus-pill inuse">${counts.inuse} In Use</span>` : ''}
         ${counts.not_available ? `<span class="rstatus-pill notavail">${counts.not_available} Not Available</span>` : ''}
       </div>`;
 
@@ -526,16 +566,24 @@ export function renderCorridor() {
       </button>`;
     };
 
-    rows += `<div class="floor-row">
-      <div class="room-cell lc"><div class="room-slot" data-room-slot="true" data-floor="${state.currentFloorId}" data-side="left" data-slot-index="${index + 1}" data-room-id="${leftRoom ? leftRoom.id : ''}">${renderCell(leftRoom)}</div></div>
+    const slotsFor = (side, list) => {
+      let html = '';
+      for (let k = 0; k < perSide; k++) {
+        const index = rowIndex * perSide + k;
+        const room = list[index];
+        html += `<div class="room-slot" data-room-slot="true" data-floor="${state.currentFloorId}" data-side="${side}" data-slot-index="${index + 1}" data-room-id="${room ? room.id : ''}">${renderCell(room)}</div>`;
+      }
+      return html;
+    };
+    rows += `<div class="floor-row${perSide > 1 ? ' wide' : ''}">
+      <div class="room-cell lc">${slotsFor('left', leftRooms)}</div>
       <div class="corridor-col"><div class="corridor-line"></div></div>
-      <div class="room-cell rc"><div class="room-slot" data-room-slot="true" data-floor="${state.currentFloorId}" data-side="right" data-slot-index="${index + 1}" data-room-id="${rightRoom ? rightRoom.id : ''}">${renderCell(rightRoom)}</div></div>
+      <div class="room-cell rc">${slotsFor('right', rightRooms)}</div>
     </div>`;
   }
 
   const adminActions = isAdmin() ? `<div class="floor-manage-actions">
     <button class="btn-sm ghost" data-action="edit-floor" data-floor="${currentFloor.id}">Edit Floor</button>
-    <button class="btn-sm ghost danger" data-action="delete-floor" data-floor="${currentFloor.id}">Delete Floor</button>
     <button class="btn-sm ghost" data-action="add-room">+ Add Room</button>
   </div>` : '';
 
@@ -550,7 +598,7 @@ export function renderCorridor() {
   }, { free: 0, inuse: 0, not_available: 0 });
   const floorSummary = `<div class="floor-status-summary">
     <span class="rstatus-pill avail">${totals.free} Free</span>
-    <span class="rstatus-pill inuse">${totals.inuse} In Use</span>
+    ${totals.inuse ? `<span class="rstatus-pill inuse">${totals.inuse} In Use</span>` : ''}
     ${totals.not_available ? `<span class="rstatus-pill notavail">${totals.not_available} Not Available</span>` : ''}
   </div>`;
 
@@ -620,7 +668,6 @@ export function renderRoom(room) {
 
   const adminActions = isAdmin() ? `
     <button class="btn-sm ghost admin-only" data-action="edit-room" data-room="${room.id}">Edit Room</button>
-    <button class="btn-sm ghost danger admin-only" data-action="delete-room" data-room="${room.id}">Delete Room</button>
     <button class="btn-add-device admin-only" data-action="add-device" data-room="${room.id}">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="8" y1="2" x2="8" y2="14" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="2" y1="8" x2="14" y2="8" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
       Add Device
@@ -660,12 +707,12 @@ export function renderRoom(room) {
       </div>
     </div>
     <div class="room-sidebar">
-      <div class="scard">
+      <div class="scard room-info-card">
         <div class="scard-title">Room Info</div>
         <div class="srow"><span class="srow-k">Total Devices</span><span class="srow-v">${room.devices.length}</span></div>
         ${statsRows}
       </div>
-      ${deviceListItems ? `<div class="scard"><div class="scard-title">Device Status</div>${deviceListItems}</div>` : ''}
+      ${deviceListItems ? `<div class="scard dev-status-card"><div class="scard-title">Device Status</div>${deviceListItems}</div>` : ''}
       <div class="scard">
         <div class="scard-title-row">
           <div class="scard-title">Beds</div>
@@ -682,7 +729,8 @@ export function renderRoom(room) {
       <div class="scard">
         <div class="scard-title">Legend</div>
         <div class="legend-row"><div class="legend-dot g"></div><span class="legend-lbl">Free to Use</span></div>
-        <div class="legend-row"><div class="legend-dot r"></div><span class="legend-lbl">In Use / Not Available</span></div>
+        <div class="legend-row"><div class="legend-dot r"></div><span class="legend-lbl">In Use</span></div>
+        <div class="legend-row"><div class="legend-dot o"></div><span class="legend-lbl">Not Available</span></div>
       </div>
     </div>
   </div>`;
@@ -899,12 +947,11 @@ export function buildPanel(device, room) {
       ${meta.key !== STATUS.FREE && st.since ? `<div class="status-since">${meta.key === STATUS.IN_USE ? 'In use' : 'Marked unavailable'} since ${esc(formatSinceLabel(st.since))} · auto-frees at midnight</div>` : ''}
       ${canUpdateStatus() ? `
         <div class="field-group">
-          <label class="field-label" for="statusSelect_${device.id}">Device Status</label>
-          <select class="field-select" id="statusSelect_${device.id}" data-action="set-status" data-device-id="${device.id}" data-room="${room.id}">
-            <option value="${STATUS.FREE}" ${meta.key === STATUS.FREE ? 'selected' : ''}>Free to Use</option>
-            <option value="${STATUS.IN_USE}" ${meta.key === STATUS.IN_USE ? 'selected' : ''}>In Use</option>
-            <option value="${STATUS.NOT_AVAILABLE}" ${meta.key === STATUS.NOT_AVAILABLE ? 'selected' : ''}>Not Available</option>
-          </select>
+          <div class="field-label" id="statusPickLbl_${device.id}">Set Status</div>
+          <div class="status-pick" role="radiogroup" aria-labelledby="statusPickLbl_${device.id}">
+            ${[[STATUS.FREE, 'Free', 'avail'], [STATUS.IN_USE, 'In Use', 'inuse'], [STATUS.NOT_AVAILABLE, 'Not Available', 'notavail']].map(([value, label, cls]) => `
+            <button type="button" class="status-pick-btn ${cls}${meta.key === value ? ' is-on' : ''}" role="radio" aria-checked="${meta.key === value}" data-action="pick-status" data-status="${value}" data-device-id="${device.id}" data-room="${room.id}">${label}</button>`).join('')}
+          </div>
         </div>
         ${meta.key === STATUS.IN_USE ? `
           <div class="emp-field">

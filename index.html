@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hellocare Room Monitor</title>
 <link rel="stylesheet" href="hospital_room_monitor_v9.css">
+<script>
+  // Set the theme before first paint (no light flash in dark mode).
+  // Kept in sync with applyTheme() in the interaction module.
+  (function () {
+    var pref = 'system';
+    try { pref = localStorage.getItem('hrm-theme') || 'system'; } catch (e) {}
+    var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
 </head>
 <body>
 <div id="app"></div>
@@ -122,6 +132,7 @@
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn-delete-left" data-action="delete-editing-room">Delete Room</button>
       <button class="btn-cancel" data-action="close-modal" data-modal="editRoomModal">Cancel</button>
       <button class="btn-primary" data-action="confirm-edit-room">Save Changes</button>
     </div>
@@ -162,6 +173,7 @@
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn-delete-left" data-action="delete-editing-floor">Delete Floor</button>
       <button class="btn-cancel" data-action="close-modal" data-modal="editFloorModal">Cancel</button>
       <button class="btn-primary" data-action="confirm-edit-floor">Save Changes</button>
     </div>

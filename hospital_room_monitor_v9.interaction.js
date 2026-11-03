@@ -56,6 +56,8 @@ import {
   savePanel,
   startEditDevName,
   saveDevName,
+  applyTheme,
+  cycleTheme,
   startEditDevSn,
   refreshDeviceVisual,
   initDrag,
@@ -1176,6 +1178,9 @@ const actionHandlers = {
   'add-bed': target => addBedToRoom(target.dataset.room),
   'edit-room': target => openEditRoomModal(target.dataset.room),
   'delete-room': target => deleteRoom(target.dataset.room),
+  // Delete lives inside the Edit popups now, away from the everyday buttons.
+  'delete-editing-room': () => { const id = state.editingRoomId; closeModal('editRoomModal'); if (id) deleteRoom(id); },
+  'delete-editing-floor': () => { const id = state.editingFloorId; closeModal('editFloorModal'); if (id) deleteFloor(id); },
   'go-back': () => goBack(),
   'close-panel': () => closePanel(),
   'close-modal': target => closeModal(target.dataset.modal),
@@ -1191,6 +1196,19 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
+  'cycle-theme': () => {
+    const next = cycleTheme();
+    showToast(`Theme: ${next === 'system' ? 'auto (follows your computer)' : next}.`, 'info');
+  },
+  'pick-status': target => {
+    const value = target.dataset.status;
+    if (!Object.values(STATUS).includes(value)) return;
+    const devId = getDeviceId(target);
+    if (getDeviceState(devId).status === value) return;
+    commitDeviceStatus(devId, target.dataset.room, value);
+    const label = value === STATUS.FREE ? 'free to use' : value === STATUS.IN_USE ? 'in use' : 'not available';
+    showToast(`Saved: ${label}.`);
+  },
   'start-edit-sn': target => startEditDevSn(getDeviceId(target), target.dataset.room),
   'save-dev-sn': target => saveDevSn(getDeviceId(target), target.dataset.room),
   'clear-filters': () => clearSearchFilters(),
@@ -1641,6 +1659,13 @@ export function initApp() {
   document.addEventListener('dragend', handleRoomDragEnd);
   document.addEventListener('click', handleClick);
   initBackButtonGuard();
+  applyTheme();
+  // "Auto" follows the OS live, e.g. when Windows switches to dark at night.
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  // Floor view switches between 1 and 2 rooms per side at 1280px.
+  window.matchMedia('(min-width: 1280px)').addEventListener('change', () => {
+    if (!state.currentRoom && document.querySelector('.floor-plan')) render();
+  });
 }
 
 // Browser Back used to leave the app entirely. Now it steps back inside

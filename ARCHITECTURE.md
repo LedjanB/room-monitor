@@ -342,9 +342,8 @@ would need rethinking if this ever handled anything actually sensitive or advers
    measured there and then applied to the untransformed box during the drag, so measuring a
    scaled tile makes it jump under the cursor the moment a drag starts.
 6. **The toast stack sits exactly on top of the panel's sticky Save Changes bar.** Both
-   are bottom-right and fixed. Toasts are therefore `pointer-events:none` — without it the
-   "Status set to in use — click Save Changes to apply" toast physically blocked the button
-   it was pointing at until it faded. Nothing in a toast is interactive; if that ever
+   are bottom-right and fixed. Toasts are therefore `pointer-events:none`, otherwise a
+   toast physically blocks the button underneath until it fades. Nothing in a toast is interactive; if that ever
    changes, the bar needs to move instead.
 7. **A modal's header must not scroll.** `.modal` is a flex column with `overflow:hidden`
    and only `.modal-body` scrolls; header and footer are fixed rows. Before that, `.modal`
@@ -393,88 +392,23 @@ would need rethinking if this ever handled anything actually sensitive or advers
    INPUT/SELECT/TEXTAREA action elements. Before that guard, clicking inside the
    rename-device input (whose `data-action="save-dev-name"` exists for the Enter key)
    instantly saved and closed the editor.
-13. **The panel's status dropdown is a live preview, not a save.** It mutates in-memory
-    state for instant feedback; `savePanel()` persists, and `closePanel()` rolls the
-    preview back if the panel is closed without saving (otherwise tiles keep showing a
-    status that never reached the server). Failed Firebase writes surface as error toasts
-    via `setSyncErrorHandler()` — don't remove that wiring when touching `initApp()`.
-
-## Getting deploys to open tabs (version bar + daily refresh)
-
-Hosting is served `no-cache`, but a tab that's *already open* keeps running
-the JS it loaded until it reloads — so a fresh deploy doesn't reach someone
-who never closes the app. Two mechanisms cover this, both in `interaction.js`:
-
-**1. New-deploy detection (the "please refresh" bar).** `/version.json` holds
-a single version string that is re-stamped on every deploy (by `deploy.sh` —
-see below). On startup each tab records the version it loaded with
-(`startVersionWatch()`). It then re-checks `version.json` **when the tab is
-brought back into view** (`visibilitychange` → `visible`) — the moment the
-user would actually act on the bar — plus a slow **15-minute** background
-interval as a fallback for a tab that stays visible for hours (a wall
-display). When the value differs from the loaded one it shows the **"Updates
-are ready — please refresh"** bar (`#refreshBar` in `index.html`). This is
-the standard "a new version is available" pattern — it does *not* force a
-reload (that would yank the page mid-use), it just surfaces the bar; the user
-clicks "Refresh now" (`do-refresh` → `location.reload()`). Because the marker
-bumps on every deploy, it catches any change — JS, CSS, or rules — not just
-ones that alter `index.html`. The app degrades gracefully if `version.json`
-is missing (the bar simply never triggers from this path). Cost is trivial:
-`version.json` is a ~40-byte static **Hosting** file, so this never touches
-the Realtime Database free-tier quota (connections / bandwidth), and a
-backgrounded tab isn't polling at all.
-
-**2. Daily reload backstop.** Independently, every open tab reloads itself
-once a day at **10:00 Kosovo time** (`Europe/Belgrade`),
-`scheduleDailyRefresh()`, with the time derived from `serverNow()` so a wrong
-local clock can't fire it early/late. If the user is mid-action at 10:00 —
-dragging, typing, or a modal/panel open (`isSafeToReload()`) — it doesn't
-reload out from under them; it shows the same bar and then reloads
-automatically once they go idle. To change the time, edit `DAILY_REFRESH_HOUR`.
-
-## Responsive layout
-
-The desktop design is a single wide header row plus a two-column corridor next to a
-fixed-width sidebar; on phones/tablets that overflowed sideways. A responsive layer at the
-end of `hospital_room_monitor_v9.css` (breakpoints at 900 / 600 / 400 px, on top of the
-pre-existing 980 px one for the room view) reflows it **without any markup changes** —
-render.js still emits the same DOM:
-
-- **Header** wraps instead of overflowing. On phones the search moves to its own full-width
-  row (`order:-1`), the informational ROOMS/DEVICES count pills are hidden (the same numbers
-  appear in the corridor subheader and room Info card), the username truncates, and the role
-  chip drops on very small screens.
-- **Search results** become a bottom sheet on phones (`top:auto;bottom:0`, full width),
-  decoupled from the now variable-height header so they can't hide behind it.
-- **Corridor** keeps its left/right-of-a-hallway metaphor at every size — only the gutter
-  (`.floor-row` middle column) and paddings shrink.
-- **Room view** stacks the sidebar below the canvas (single column on phones); the **detail
-  panel** goes full-width (`100vw`). The room canvas keeps a fixed aspect ratio; at desktop
-  width that's the natural landscape 68 %, but on a phone-width canvas 68 % collapses into a
-  cramped ~240 px strip with unreadable/untappable devices, so phones use a much taller ratio
-  (`padding-bottom:110%`) — same %-positioned devices, just scaled up to a usable size — and
-  the status quick-toggle dots grow to a real touch target.
-- `overflow-x:hidden` on `html,body` under 900 px is a safety net against any stray wide
-  child forcing sideways scroll.
-
-If you add a new header control or a new top-level view, re-check it at 375 px — the harness
-approach used to verify this (a static HTML file mirroring render.js's markup, screenshotted
-at several widths) is the quickest way.
-
-## Deploying changes
-
-No CI/CD — deploys are manual. **Use `deploy.sh`** rather than calling the CLI directly:
-it stamps a fresh `version.json` first, which is what makes open tabs show the "please
-refresh" bar (see "Getting deploys to open tabs" above). Deploying without that stamp still
-ships the code, but open tabs won't notice until the daily 10:00 reload.
-
-```
-./deploy.sh                          # stamp version.json + deploy hosting
-./deploy.sh --only database,hosting  # extra args pass through (e.g. also push RTDB rules)
-```
-
-`version.json` is a pure deploy artifact — it's git-ignored and regenerated every run, so it
-never clutters history. The script relies on a logged-in Firebase CLI (`npx firebase-tools
-login`, interactive, one-time per machine) — the cached credentials under the user's
-`configstore` are picked up automatically, so no `--token` is needed. There's no CI
-pipeline; every deploy is run by hand.
+13. **Status saves immediately.** The panel's three status buttons (`pick-status`) call
+    `commitDeviceStatus()`, same as the tile's quick dot. "In use by" and "Reason" save on
+    their own while typing (debounced, flushed when the panel closes). The Save Changes bar
+    is now only for new custom fields; closing the panel discards half-typed custom fields
+    and nothing else.
+14. **`[title]{position:relative}` (the old tooltip rule) beats any same-specificity
+    `position:absolute` that comes before it in the file.** That's how the status dot ended
+    up in normal flow: on top of each tile and, on a TV, under the Hello. It's now forced
+    back to absolute, and the drawings keep a 20px `margin-top` *only when the dot is
+    present*, because every live layout was arranged with that offset baked in. Removing
+    the margin shifts every device on the board 20px up.
+15. **Browser Back never leaves the app.** `initBackButtonGuard()` keeps one extra history
+    entry; Back pops it, `stepBackInApp()` closes the topmost thing (dialog, note editor,
+    search, device panel, then room → floor), and the entry is put back.
+16. **Theme.** `data-theme="light|dark"` on `<html>`, set before first paint by the inline
+    script in `index.html` and kept in sync by `applyTheme()` (render.js). The header
+    button cycles Auto → Light → Dark, stored in `localStorage` (`hrm-theme`). All dark
+    styles are `:root[data-theme="dark"] …` overrides at the end of the CSS.
+17. **Wide floor view.** At ≥1280px the floor shows two rooms per side per row
+    (`isWideFloorLayout()`); slot indexes stay sequential so room drag/drop is unchanged.
