@@ -156,6 +156,31 @@ const dirtyPanels = new Set();
 // showing a status that was never persisted.
 const panelOpenedStatus = new Map();
 
+// "In use by" and "Reason" save on their own while typing (debounced), so
+// nobody has to remember the Save button. Flushed when the panel closes.
+const pendingTextSaves = new Map();
+function scheduleTextSave(devId) {
+  if (!devId) return;
+  clearTimeout(pendingTextSaves.get(devId));
+  pendingTextSaves.set(devId, setTimeout(() => flushTextSave(devId), 700));
+}
+function flushTextSave(devId) {
+  if (!pendingTextSaves.has(devId)) return;
+  clearTimeout(pendingTextSaves.get(devId));
+  pendingTextSaves.delete(devId);
+  try { saveDeviceState(devId); } catch (e) { /* ignore */ }
+  const st = getDeviceState(devId);
+  if (panelOpenedStatus.has(devId)) {
+    const snap = panelOpenedStatus.get(devId);
+    snap.employee = st.employee;
+    snap.notAvailableReason = st.notAvailableReason;
+  }
+}
+function hasUnsavedCustomFields(devId) {
+  const st = getDeviceState(devId);
+  return (st.customFields || []).some(field => (field.k || '').trim() || (field.v || '').trim());
+}
+
 export function markPanelDirty(devId) {
   if (!devId) return;
   dirtyPanels.add(devId);
@@ -1167,7 +1192,10 @@ export function commitDeviceStatus(devId, roomId, status) {
   const st = getDeviceState(devId);
   const prevStatus = st.status;
   updateDeviceStatus(devId, roomId, status);
-  clearPanelDirty(devId);
+  if (hasUnsavedCustomFields(devId)) markPanelDirty(devId);
+  else clearPanelDirty(devId);
+  clearTimeout(pendingTextSaves.get(devId));
+  pendingTextSaves.delete(devId);
   try { saveDeviceState(devId); } catch (e) { /* ignore */ }
   // If this device's panel happens to be open, its "last saved" baseline
   // just moved — refresh the snapshot so a later Save/close compares
@@ -1182,14 +1210,14 @@ export function updateEmployee(devId, roomId, value) {
   const st = getDeviceState(devId);
   st.employee = value.trim();
   refreshDeviceVisual(devId);
-  markPanelDirty(devId);
+  scheduleTextSave(devId);
 }
 
 export function updateUnavailableReason(devId, roomId, value) {
   const st = getDeviceState(devId);
   st.notAvailableReason = value.trim();
   refreshDeviceVisual(devId);
-  markPanelDirty(devId);
+  scheduleTextSave(devId);
 }
 
 export function rebuildPanelForDevice(devId, roomId) {
@@ -1212,17 +1240,13 @@ export function closePanel() {
     // other unsaved panel edits) to the last-saved values, otherwise the
     // tiles keep showing a status that never reached the server and a later
     // remote sync would silently "revert" it in front of the user.
+    // Status, "in use by" and "reason" now save as you go, so the only
+    // thing left unsaved can be half-typed custom fields: drop those.
+    flushTextSave(devId);
     if (snapshot && dirtyPanels.has(devId)) {
       const st = getDeviceState(devId);
-      st.status = snapshot.status;
-      st.inUse = snapshot.inUse;
-      st.employee = snapshot.employee;
-      st.notAvailableReason = snapshot.notAvailableReason;
-      st.since = snapshot.since;
       st.customFields = [];
       clearPanelDirty(devId);
-      if (state.currentRoom) render();
-      else refreshDeviceVisual(devId);
     }
     panelOpenedStatus.delete(devId);
   }

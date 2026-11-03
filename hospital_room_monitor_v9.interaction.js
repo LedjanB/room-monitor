@@ -1524,11 +1524,10 @@ export function initApp() {
     }
 
     if (target.dataset.action === 'set-status') {
-      updateDeviceStatus(getDeviceId(target), target.dataset.room, target.value);
+      // Saves immediately. People kept forgetting the Save Changes button.
+      commitDeviceStatus(getDeviceId(target), target.dataset.room, target.value);
       const label = target.value === STATUS.FREE ? 'free to use' : target.value === STATUS.IN_USE ? 'in use' : 'not available';
-      // This is a live preview only — nothing is persisted until Save
-      // Changes. Don't tell the user it's done when it isn't.
-      showToast(`Status set to ${label} — click Save Changes to apply.`, 'info');
+      showToast(`Saved: ${label}.`);
     }
   });
 
@@ -1641,4 +1640,44 @@ export function initApp() {
   document.addEventListener('drop', handleRoomDrop);
   document.addEventListener('dragend', handleRoomDragEnd);
   document.addEventListener('click', handleClick);
+  initBackButtonGuard();
+}
+
+// Browser Back used to leave the app entirely. Now it steps back inside
+// the app instead (closes a dialog, the device panel, or goes from a room
+// to the floor), and never leaves. We keep one extra history entry on top
+// ("guard"); Back pops it, we handle the step, then put it back.
+function stepBackInApp() {
+  const confirmModal = document.getElementById('confirmModal');
+  if (confirmModal?.classList.contains('open')) { closeConfirm(); return; }
+  const openModalBg = document.querySelector('.modal-bg.open');
+  if (openModalBg?.id) { closeModal(openModalBg.id); return; }
+  if (getEditingNote()) {
+    document.querySelector('[data-action="cancel-edit-note"]')?.click();
+    return;
+  }
+  const sr = document.getElementById('searchResults');
+  if (sr?.classList.contains('open')) { clearSearch(); return; }
+  const panelBg = document.getElementById('panelBg');
+  if (panelBg?.classList.contains('open')) { closePanel(); return; }
+  if (state.currentRoom) { goBack(); return; }
+}
+
+function initBackButtonGuard() {
+  if (!window.history?.pushState) return;
+  const arm = () => {
+    if (history.state?.rm !== 'guard') history.pushState({ rm: 'guard' }, '');
+  };
+  if (history.state?.rm !== 'base' && history.state?.rm !== 'guard') {
+    history.replaceState({ rm: 'base' }, '');
+  }
+  arm();
+  // Chrome ignores history entries added before the user has interacted
+  // with the page, so re-arm on interaction too (no-op if already armed).
+  document.addEventListener('pointerdown', arm, true);
+  document.addEventListener('keydown', arm, true);
+  window.addEventListener('popstate', () => {
+    stepBackInApp();
+    arm();
+  });
 }
