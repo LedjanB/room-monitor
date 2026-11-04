@@ -688,7 +688,7 @@ export function renderFreeFloor(floor, floorRooms) {
 
   const toolbar = editing
     ? `<div class="fmap-bar" role="toolbar" aria-label="Layout editor">
-        <span class="fmap-tip">Drag a room to move it. Drag on empty floor to draw a new room.</span>
+        <span class="fmap-tip">Drag a room to move it. Drag a wall to resize (rooms in a row move together). Drag on empty floor to draw a new room.</span>
         <button class="btn-sm ghost" data-action="ff-aspect" data-dir="-1">Shorter</button>
         <button class="btn-sm ghost" data-action="ff-aspect" data-dir="1">Taller</button>
         <button class="btn-sm" data-action="ff-done">Done</button>

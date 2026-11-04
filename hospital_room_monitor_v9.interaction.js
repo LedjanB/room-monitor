@@ -1024,6 +1024,7 @@ function ffPointerDown(event) {
   if (!room.box) room.box = freeSpotFor(floor);
   const handle = event.target.closest('[data-ff-handle]')?.dataset.ffHandle || null;
   ffDrag = { mode: handle ? 'resize' : 'move', handle, room, floor, rect, at, start: at(event), orig: { ...room.box }, el: roomEl, moved: false };
+  if (handle) ffDrag.walls = handle.split('').map(side => linkedWall(room, side));
   roomEl.classList.add('dragging');
   try { roomEl.setPointerCapture(event.pointerId); } catch (e) { /* ignore */ }
 }
@@ -1062,16 +1063,94 @@ function ffPointerMove(event) {
     box.x = ffClamp(x, 0, 100 - orig.w);
     box.y = ffClamp(y, 0, 100 - orig.h);
   } else {
-    let { x, y, w, h } = orig;
-    if (handle.includes('e')) w = ffClamp(snapTo(orig.x + orig.w + dx, t.xs) - x, FMAP_MIN, 100 - x);
-    if (handle.includes('s')) h = ffClamp(snapTo(orig.y + orig.h + dy, t.ys) - y, FMAP_MIN, 100 - y);
-    if (handle.includes('w')) { const nx = ffClamp(snapTo(orig.x + dx, t.xs), 0, orig.x + orig.w - FMAP_MIN); w = orig.x + orig.w - nx; x = nx; }
-    if (handle.includes('n')) { const ny = ffClamp(snapTo(orig.y + dy, t.ys), 0, orig.y + orig.h - FMAP_MIN); h = orig.y + orig.h - ny; y = ny; }
-    Object.assign(box, { x, y, w, h });
+    const touched = new Set([room]);
+    ffDrag.walls.forEach(wall => {
+      const linked = new Set([...wall.same, ...wall.facing].map(x => x.r.id));
+      // snap only to walls of rooms that aren't moving with this one
+      const free = rooms.filter(r => r.floorId === room.floorId && r.box && !linked.has(r.id));
+      const xs = [0, 100, ...free.flatMap(r => [r.box.x, r.box.x + r.box.w])];
+      const ys = [0, 100, ...free.flatMap(r => [r.box.y, r.box.y + r.box.h])];
+      const horizontal = wall.side === 'n' || wall.side === 's';
+      const target = snapTo(wall.line + (horizontal ? dy : dx), horizontal ? ys : xs);
+      applyWall(wall, target);
+      wall.same.concat(wall.facing).forEach(x => touched.add(x.r));
+    });
+    paintBoxes([...touched]);
   }
   Object.assign(ffDrag.el.style, { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%` });
   const pop = document.querySelector('.fmap-pop');
   if (pop) pop.hidden = true;
+}
+
+/** A wall works like a real floor plan wall: dragging one side of a room also
+ *  moves (1) the same side of every room lined up with it in an unbroken row,
+ *  and (2) the facing side of rooms on the other side of that wall. So the
+ *  whole row resizes together, and neighbours never overlap or leave gaps. */
+const EDGE_EPS = 0.35;
+function linkedWall(room, side) {
+  const horizontal = side === 'n' || side === 's'; // wall runs left-right
+  const edgeOf = (b, sd) => sd === 'n' ? b.y : sd === 's' ? b.y + b.h : sd === 'w' ? b.x : b.x + b.w;
+  const opposite = { n: 's', s: 'n', e: 'w', w: 'e' }[side];
+  const span = b => horizontal ? [b.x, b.x + b.w] : [b.y, b.y + b.h];
+  const line = edgeOf(room.box, side);
+  const pool = rooms.filter(r => r.floorId === room.floorId && r.box);
+  const same = [room];
+  let grew = true;
+  while (grew) {
+    grew = false;
+    pool.forEach(r => {
+      if (same.includes(r) || Math.abs(edgeOf(r.box, side) - line) > EDGE_EPS) return;
+      const [a1, a2] = span(r.box);
+      if (same.some(m => { const [b1, b2] = span(m.box); return a1 <= b2 + EDGE_EPS && a2 >= b1 - EDGE_EPS; })) { same.push(r); grew = true; }
+    });
+  }
+  const facing = pool.filter(r => !same.includes(r) && Math.abs(edgeOf(r.box, opposite) - line) <= EDGE_EPS
+    && same.some(m => { const [a1, a2] = span(r.box); const [b1, b2] = span(m.box); return Math.min(a2, b2) - Math.max(a1, b1) > EDGE_EPS; }));
+  return {
+    side, line,
+    same: same.map(r => ({ r, o: { ...r.box } })),
+    facing: facing.map(r => ({ r, o: { ...r.box } })),
+  };
+}
+
+/** Moves a linked wall to `target`, clamped so no room gets smaller than FMAP_MIN. */
+function applyWall(wall, target) {
+  const { side, line } = wall;
+  let lo = 0;
+  let hi = 100;
+  wall.same.forEach(({ o }) => {
+    if (side === 's') lo = Math.max(lo, o.y + FMAP_MIN);
+    if (side === 'n') hi = Math.min(hi, o.y + o.h - FMAP_MIN);
+    if (side === 'e') lo = Math.max(lo, o.x + FMAP_MIN);
+    if (side === 'w') hi = Math.min(hi, o.x + o.w - FMAP_MIN);
+  });
+  wall.facing.forEach(({ o }) => {
+    if (side === 's') hi = Math.min(hi, o.y + o.h - FMAP_MIN);
+    if (side === 'n') lo = Math.max(lo, o.y + FMAP_MIN);
+    if (side === 'e') hi = Math.min(hi, o.x + o.w - FMAP_MIN);
+    if (side === 'w') lo = Math.max(lo, o.x + FMAP_MIN);
+  });
+  const v = ffClamp(target, lo, hi);
+  const d = v - line;
+  wall.same.forEach(({ r, o }) => {
+    if (side === 's') r.box.h = o.h + d;
+    if (side === 'e') r.box.w = o.w + d;
+    if (side === 'n') { r.box.y = o.y + d; r.box.h = o.h - d; }
+    if (side === 'w') { r.box.x = o.x + d; r.box.w = o.w - d; }
+  });
+  wall.facing.forEach(({ r, o }) => {
+    if (side === 's') { r.box.y = o.y + d; r.box.h = o.h - d; }
+    if (side === 'n') r.box.h = o.h + d;
+    if (side === 'e') { r.box.x = o.x + d; r.box.w = o.w - d; }
+    if (side === 'w') r.box.w = o.w + d;
+  });
+}
+
+function paintBoxes(list) {
+  list.forEach(r => {
+    const el = document.querySelector(`.fmap-room[data-ff-id="${r.id}"]`);
+    if (el) Object.assign(el.style, { left: `${r.box.x}%`, top: `${r.box.y}%`, width: `${r.box.w}%`, height: `${r.box.h}%` });
+  });
 }
 
 function drawBox(d) {

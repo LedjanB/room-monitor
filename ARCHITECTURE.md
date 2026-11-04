@@ -436,5 +436,7 @@ would need rethinking if this ever handled anything actually sensitive or advers
     Edit layout (`state.layoutEditing`, this tab only): click to select (handles + Rename /
     Open / Delete popover), drag to move, handles to resize, drag on empty floor to draw a
     new room (named straight away), Delete key removes. Everything snaps to a 1% grid and
-    to other rooms' walls. Switching to Floor plan runs `convertFloorToFree()` (left-side
+    to other rooms' walls. Walls behave like a real plan (`linkedWall()`): dragging one
+    side of a room also moves that side of every room lined up with it in an unbroken row,
+    and the facing side of rooms across that wall. That's how the corridor is widened. Switching to Floor plan runs `convertFloorToFree()` (left-side
     rooms along the top, right-side along the bottom); switching back keeps the boxes.
