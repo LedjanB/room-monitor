@@ -23,6 +23,8 @@ export const state = {
   currentRoom: null,
   editingRoomId: null,
   editingFloorId: null,
+  layoutEditing: null, // floor id whose custom layout is being edited (admin, this tab only)
+  layoutSnap: true,
   uidCounter: 1000,
   searchFilters: {
     floorId: 'all',

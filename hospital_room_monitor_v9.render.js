@@ -527,8 +527,36 @@ export function switchFloor(floorId) {
   render();
 }
 
+/** One room card (used by the straight corridor and the custom layout). */
+function roomCardHTML(room, { draggable = false } = {}) {
+  const hasInUse = roomHasInUse(room);
+  const counts = getRoomStatusCounts(room);
+  const statusSummary = `<div class="rstatus-summary">
+    <span class="rstatus-pill avail">${counts.free || 0} Free</span>
+    ${counts.inuse ? `<span class="rstatus-pill inuse">${counts.inuse} In Use</span>` : ''}
+    ${counts.not_available ? `<span class="rstatus-pill notavail">${counts.not_available} Not Available</span>` : ''}
+  </div>`;
+
+  return `<button class="room-btn${hasInUse ? ' has-inuse' : ''}" data-action="open-room" data-room="${room.id}" draggable="${draggable ? 'true' : 'false'}" data-room-draggable="${draggable ? 'true' : 'false'}">
+    <div class="room-btn-top">
+      <div class="rname">${esc(room.name)}</div>
+    </div>
+    <div class="rdevs">${devSummary(room)}</div>
+    ${statusSummary}
+    <div class="rstatus-dots">${room.devices.filter(isCountedDevice).map(device => {
+      const meta = getStatusMeta(device.id);
+      // meta.detail is "In Use by <name>" / "Reason: …" — the question a
+      // status board gets asked most is *who*, and answering it in the
+      // tooltip saves opening the room and then the device.
+      const who = meta.detail ? ` — ${meta.detail}` : '';
+      return `<div class="rstatus-dot ${meta.className}" title="${esc(device.label)}: ${esc(meta.label)}${esc(who)}"></div>`;
+    }).join('')}</div>
+  </button>`;
+}
+
 export function renderCorridor() {
   const currentFloor = floors.find(floor => floor.id === state.currentFloorId) || floors[0];
+  const isFree = currentFloor?.layout === 'free';
   const floorRooms = rooms.filter(room => room.floorId === state.currentFloorId);
   const leftRooms = floorRooms.filter(room => room.side === 'left').sort((a, b) => a.pos - b.pos);
   const rightRooms = floorRooms.filter(room => room.side === 'right').sort((a, b) => a.pos - b.pos);
@@ -550,29 +578,7 @@ export function renderCorridor() {
       if (!room) {
         return `<div class="empty-cell">${isAdmin() && isFirstEmpty ? `<button type="button" class="add-here-btn" data-action="add-room-at" data-side="${side}" data-slot-index="${slotIndex}">+ Add room here</button>` : ''}<span class="drop-here">Drop room here</span></div>`;
       }
-      const hasInUse = roomHasInUse(room);
-      const counts = getRoomStatusCounts(room);
-      const statusSummary = `<div class="rstatus-summary">
-        <span class="rstatus-pill avail">${counts.free || 0} Free</span>
-        ${counts.inuse ? `<span class="rstatus-pill inuse">${counts.inuse} In Use</span>` : ''}
-        ${counts.not_available ? `<span class="rstatus-pill notavail">${counts.not_available} Not Available</span>` : ''}
-      </div>`;
-
-      return `<button class="room-btn${hasInUse ? ' has-inuse' : ''}" data-action="open-room" data-room="${room.id}" draggable="${isAdmin() ? 'true' : 'false'}" data-room-draggable="${isAdmin() ? 'true' : 'false'}">
-        <div class="room-btn-top">
-          <div class="rname">${esc(room.name)}</div>
-        </div>
-        <div class="rdevs">${devSummary(room)}</div>
-        ${statusSummary}
-        <div class="rstatus-dots">${room.devices.filter(isCountedDevice).map(device => {
-          const meta = getStatusMeta(device.id);
-          // meta.detail is "In Use by <name>" / "Reason: …" — the question a
-          // status board gets asked most is *who*, and answering it in the
-          // tooltip saves opening the room and then the device.
-          const who = meta.detail ? ` — ${meta.detail}` : '';
-          return `<div class="rstatus-dot ${meta.className}" title="${esc(device.label)}: ${esc(meta.label)}${esc(who)}"></div>`;
-        }).join('')}</div>
-      </button>`;
+      return roomCardHTML(room, { draggable: isAdmin() });
     };
 
     const slotsFor = (side, list) => {
@@ -626,12 +632,51 @@ export function renderCorridor() {
       ${floorTabs}
       ${isAdmin() ? `<button class="floor-tab-add admin-only" data-action="add-floor" title="Add floor/corridor">＋</button>` : ''}
     </div>
-    <div class="floor-plan">
+    ${isFree ? renderFreeFloor(currentFloor, floorRooms) : `<div class="floor-plan">
       <div class="cap"></div>
       ${rows}
       <div class="cap bot"></div>
-    </div>
+    </div>`}
   </div>`;
+}
+
+// ── Custom (free canvas) floor layout ──────────────────────────────
+// floor.layout === 'free': rooms carry room.box {x,y,w,h} and the floor
+// carries floor.corridors [{id,x,y,w,h}], all in % of the canvas. The
+// canvas keeps a fixed shape (floor.aspect = height / width) so a layout
+// looks the same on every screen. Editing is admin-only (state.layoutEditing).
+export const FREE_DEFAULT_ASPECT = 0.62;
+
+export function renderFreeFloor(floor, floorRooms) {
+  const editing = isAdmin() && state.layoutEditing === floor.id;
+  const aspect = Number(floor.aspect) || FREE_DEFAULT_ASPECT;
+  const pct = v => `${Number(v) || 0}%`;
+  const corridors = (floor.corridors || []).map(c => `
+    <div class="ff-item ff-corridor" data-ff-kind="corridor" data-ff-id="${c.id}" style="left:${pct(c.x)};top:${pct(c.y)};width:${pct(c.w)};height:${pct(c.h)};">
+      ${editing ? `<button type="button" class="ff-del" data-action="ff-del-corridor" data-ff-id="${c.id}" title="Delete corridor piece" aria-label="Delete corridor piece">×</button><span class="ff-resize" data-ff-resize="1" aria-hidden="true"></span>` : ''}
+    </div>`).join('');
+  const roomBoxes = floorRooms.map(room => {
+    const b = room.box || { x: 2, y: 2, w: 22, h: 18 };
+    return `<div class="ff-item ff-room" data-ff-kind="room" data-ff-id="${room.id}" style="left:${pct(b.x)};top:${pct(b.y)};width:${pct(b.w)};height:${pct(b.h)};">
+      ${roomCardHTML(room)}
+      ${editing ? '<span class="ff-resize" data-ff-resize="1" aria-hidden="true"></span>' : ''}
+    </div>`;
+  }).join('');
+  const toolbar = editing ? `<div class="ff-toolbar" role="toolbar" aria-label="Layout editor">
+      <span class="ff-tip">Drag to move. Drag the corner to resize.</span>
+      <button class="btn-sm ghost" data-action="ff-add-corridor">+ Corridor piece</button>
+      <button class="btn-sm ghost" data-action="add-room">+ Room</button>
+      <button class="btn-sm ghost" data-action="ff-aspect" data-dir="-1" title="Make the floor shorter">Shorter</button>
+      <button class="btn-sm ghost" data-action="ff-aspect" data-dir="1" title="Make the floor taller">Taller</button>
+      <label class="ff-snap"><input type="checkbox" data-action="ff-snap" ${state.layoutSnap !== false ? 'checked' : ''}/> Snap to grid</label>
+      <button class="btn-sm" data-action="ff-done">Done</button>
+    </div>` : (isAdmin() ? `<div class="ff-toolbar quiet"><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
+  return `${toolbar}
+    <div class="ff-scroll">
+      <div class="ff-canvas${editing ? ' editing' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
+        <div class="ff-inner">${corridors}${roomBoxes}</div>
+      </div>
+    </div>`;
 }
 
 export function renderRoom(room) {

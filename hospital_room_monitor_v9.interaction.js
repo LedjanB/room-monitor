@@ -618,6 +618,9 @@ export function openAddRoomModal(side = 'left', slotIndex = null) {
   }
   fillAddRoomWhere(side === 'right' ? 'right' : 'left', slotIndex);
   const modal = document.getElementById('addRoomModal');
+  // Custom layouts place the room in a free spot; side/position don't apply.
+  const free = floors.find(f => f.id === state.currentFloorId)?.layout === 'free';
+  modal?.classList.toggle('free-layout', free);
   if (modal) modal.classList.add('open');
   setTimeout(() => nameInput?.focus(), 30);
 }
@@ -632,7 +635,10 @@ function addRoomAt(name, side, slotIndex) {
     return 'A room with that name already exists on this floor.';
   }
   const id = uid('room');
-  rooms.push({ id, floorId: state.currentFloorId, name, side, pos: 9999, devices: [], notes: [] });
+  const room = { id, floorId: state.currentFloorId, name, side, pos: 9999, devices: [], notes: [] };
+  const floor = floors.find(f => f.id === state.currentFloorId);
+  if (floor?.layout === 'free') room.box = freeSpotFor(floor);
+  rooms.push(room);
   moveRoomToSlot(id, side, slotIndex || 9999);
   return '';
 }
@@ -829,6 +835,19 @@ function renderFloorManager() {
   const roomsEl = document.getElementById('floorMgrRooms');
   if (!roomsEl) return;
   const floorId = state.editingFloorId;
+  const floorObj = floors.find(f => f.id === floorId);
+  const isFree = floorObj?.layout === 'free';
+  const segEl = document.getElementById('floorLayoutSeg');
+  const helpEl = document.getElementById('floorLayoutHelp');
+  if (segEl) {
+    const opt = (value, label) => `<button type="button" class="seg-btn${(isFree ? 'free' : 'corridor') === value ? ' is-on' : ''}" role="radio" aria-checked="${(isFree ? 'free' : 'corridor') === value}" data-action="set-floor-layout" data-value="${value}">${label}</button>`;
+    segEl.innerHTML = opt('corridor', 'Straight corridor') + opt('free', 'Custom');
+  }
+  if (helpEl) {
+    helpEl.textContent = isFree
+      ? 'Arrange rooms and corridor pieces freely: close this and click Edit layout on the floor.'
+      : 'Rooms on two sides of one straight corridor. Switch to Custom for turns, L-shapes or any arrangement; it starts from this layout.';
+  }
   const floorRooms = rooms.filter(room => room.floorId === floorId);
   const devices = floorRooms.reduce((sum, room) => sum + deviceCount(room), 0);
   const counts = floorRooms.reduce((acc, room) => {
@@ -871,11 +890,147 @@ function renderFloorManager() {
     </div>`;
   };
 
-  roomsEl.innerHTML = `<div class="fm-corridor">${column('left')}<div class="fm-hall" aria-hidden="true"></div>${column('right')}</div>
+  if (isFree) {
+    const list = rooms.filter(room => room.floorId === floorId).sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+    const rows = list.map(room => {
+      const n = deviceCount(room);
+      const nameCell = floorMgrRenaming === room.id
+        ? `<input class="field-input fm-rename" id="fmRename_${room.id}" value="${esc(room.name)}" data-action="fm-rename-save" data-room="${room.id}" />
+           <button class="btn-mini primary" data-action="fm-rename-save" data-room="${room.id}">Save</button>`
+        : `<span class="fm-name">${esc(room.name)}</span><span class="fm-meta">${n} ${n === 1 ? 'device' : 'devices'}</span>`;
+      return `<li class="fm-row"><div class="fm-main">${nameCell}</div><div class="fm-tools">
+        <button class="fm-btn" data-action="fm-rename" data-room="${room.id}" title="Rename" aria-label="Rename ${esc(room.name)}">${fmIcon.edit}</button>
+        <button class="fm-btn danger" data-action="fm-delete" data-room="${room.id}" title="Delete room" aria-label="Delete ${esc(room.name)}">${fmIcon.trash}</button>
+      </div></li>`;
+    }).join('');
+    const addRow = floorMgrAdding
+      ? `<div class="fm-add-row"><input class="field-input" id="fmAddName_left" placeholder="Room name" data-action="fm-add-save" data-side="left" /><button class="btn-mini primary" data-action="fm-add-save" data-side="left">Add</button><button class="btn-mini" data-action="fm-add-cancel">Cancel</button></div>`
+      : `<button class="fm-add" data-action="fm-add" data-side="left">+ Add room</button>`;
+    roomsEl.innerHTML = `<div class="fm-col"><div class="fm-col-title">Rooms</div><ol class="fm-list fm-grid">${rows || '<li class="fm-empty">No rooms yet</li>'}</ol>${addRow}</div>`;
+  } else {
+    roomsEl.innerHTML = `<div class="fm-corridor">${column('left')}<div class="fm-hall" aria-hidden="true"></div>${column('right')}</div>
     <div class="fm-hint">Top of each list is the start of the corridor. You can also drag rooms on the floor view.</div>`;
+  }
 
   if (floorMgrAdding) setTimeout(() => document.getElementById(`fmAddName_${floorMgrAdding}`)?.focus(), 20);
   if (floorMgrRenaming) setTimeout(() => { const el = document.getElementById(`fmRename_${floorMgrRenaming}`); el?.focus(); el?.select(); }, 20);
+}
+
+// ── Custom floor layout (free canvas) ───────────────────────────────
+const FF_MIN = { room: { w: 8, h: 8 }, corridor: { w: 1.5, h: 1.5 } };
+const FF_SNAP = 1;
+
+function ffRound(v) {
+  const step = state.layoutSnap !== false ? FF_SNAP : 0.1;
+  return Math.round(v / step) * step;
+}
+function ffClamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
+
+/** Lays the current straight corridor out on the canvas: left rooms, a
+ *  corridor down the middle, right rooms, same order. Used the first time
+ *  a floor switches to Custom so nobody has to place rooms from scratch. */
+function convertFloorToFree(floor) {
+  const list = side => rooms.filter(r => r.floorId === floor.id && r.side === side).sort((a, b) => a.pos - b.pos);
+  const left = list('left');
+  const right = list('right');
+  const rowsN = Math.max(left.length, right.length, 1);
+  const aspect = Math.max(0.45, Math.min(1.6, rowsN * 0.16 + 0.06));
+  floor.aspect = Number(aspect.toFixed(2));
+  const gap = 2;
+  const rowH = (100 - gap * (rowsN + 1)) / rowsN;
+  const place = (room, i, x) => {
+    if (room.box) return; // keep a layout made earlier
+    room.box = { x, y: Number((gap + i * (rowH + gap)).toFixed(1)), w: 38, h: Number(rowH.toFixed(1)) };
+  };
+  left.forEach((room, i) => place(room, i, 4));
+  right.forEach((room, i) => place(room, i, 58));
+  if (!Array.isArray(floor.corridors) || !floor.corridors.length) {
+    floor.corridors = [{ id: uid('cor'), x: 44, y: 0, w: 12, h: 100 }];
+  }
+  floor.layout = 'free';
+}
+
+function setFloorLayout(floorId, layout) {
+  if (!isAdminRole()) return;
+  const floor = floors.find(f => f.id === floorId);
+  if (!floor || (floor.layout || 'corridor') === layout) return;
+  if (layout === 'free') convertFloorToFree(floor);
+  else floor.layout = 'corridor'; // boxes/corridors are kept for switching back
+  if (layout !== 'free' && state.layoutEditing === floorId) state.layoutEditing = null;
+  render();
+  saveState();
+  renderFloorManager();
+  showToast(layout === 'free' ? 'Custom layout on. Use Edit layout on the floor to arrange it.' : 'Straight corridor layout on.');
+}
+
+/** Free spot for a new room on a custom floor: first place it doesn't overlap. */
+function freeSpotFor(floor, w = 22, h = 18) {
+  const boxes = rooms.filter(r => r.floorId === floor.id && r.box).map(r => r.box)
+    .concat(floor.corridors || []);
+  const hits = (x, y) => boxes.some(b => x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y);
+  for (let y = 2; y + h <= 100; y += 4) {
+    for (let x = 2; x + w <= 100; x += 4) {
+      if (!hits(x, y)) return { x, y, w, h };
+    }
+  }
+  return { x: 39, y: 41, w, h };
+}
+
+let ffDrag = null;
+
+function ffPointerDown(event) {
+  if (event.button !== 0) return;
+  const canvas = event.target.closest?.('.ff-canvas.editing');
+  if (!canvas || !isAdminRole()) return;
+  if (event.target.closest('.ff-del')) return;
+  const item = event.target.closest('.ff-item');
+  if (!item) return;
+  event.preventDefault();
+  const floor = floors.find(f => f.id === canvas.dataset.floor);
+  if (!floor) return;
+  const kind = item.dataset.ffKind;
+  const id = item.dataset.ffId;
+  const target = kind === 'room' ? rooms.find(r => r.id === id) : (floor.corridors || []).find(c => c.id === id);
+  if (!target) return;
+  if (kind === 'room' && !target.box) target.box = { x: 2, y: 2, w: 22, h: 18 };
+  const box = kind === 'room' ? target.box : target;
+  const rect = canvas.getBoundingClientRect();
+  ffDrag = {
+    item, box, kind, floor,
+    resize: !!event.target.closest('[data-ff-resize]'),
+    startX: event.clientX, startY: event.clientY,
+    orig: { ...box }, rect, moved: false,
+  };
+  item.classList.add('dragging');
+  try { item.setPointerCapture(event.pointerId); } catch (e) { /* ignore */ }
+}
+
+function ffPointerMove(event) {
+  if (!ffDrag) return;
+  const { rect, orig, box, item, kind } = ffDrag;
+  const dx = ((event.clientX - ffDrag.startX) / rect.width) * 100;
+  const dy = ((event.clientY - ffDrag.startY) / rect.height) * 100;
+  if (Math.abs(dx) + Math.abs(dy) > 0.3) ffDrag.moved = true;
+  const min = FF_MIN[kind];
+  if (ffDrag.resize) {
+    box.w = ffClamp(ffRound(orig.w + dx), min.w, 100 - orig.x);
+    box.h = ffClamp(ffRound(orig.h + dy), min.h, 100 - orig.y);
+  } else {
+    box.x = ffClamp(ffRound(orig.x + dx), 0, 100 - orig.w);
+    box.y = ffClamp(ffRound(orig.y + dy), 0, 100 - orig.h);
+  }
+  item.style.left = `${box.x}%`;
+  item.style.top = `${box.y}%`;
+  item.style.width = `${box.w}%`;
+  item.style.height = `${box.h}%`;
+}
+
+function ffPointerUp() {
+  if (!ffDrag) return;
+  const { item, moved } = ffDrag;
+  item.classList.remove('dragging');
+  ffDrag = null;
+  if (moved) saveState();
 }
 
 function floorMgrChanged(message) {
@@ -1394,6 +1549,7 @@ function handleClick(event) {
   if (actionEl && ['INPUT', 'SELECT', 'TEXTAREA'].includes(actionEl.tagName)) return;
 
   if (action === 'close-panel' && actionEl.id === 'panelBg' && target !== actionEl) return;
+  if (action === 'open-room' && actionEl.closest('.ff-canvas.editing')) return;
 
   if (action === 'do-login') {
     const username = document.getElementById('loginUser')?.value || '';
@@ -1545,6 +1701,33 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
+  'ff-edit': () => { state.layoutEditing = state.currentFloorId; render(); },
+  'ff-done': () => { state.layoutEditing = null; render(); showToast('Layout saved.'); },
+  'ff-snap': () => {},
+  'ff-add-corridor': () => {
+    const floor = floors.find(f => f.id === state.currentFloorId);
+    if (!floor || !isAdminRole()) return;
+    if (!Array.isArray(floor.corridors)) floor.corridors = [];
+    floor.corridors.push({ id: uid('cor'), ...freeSpotFor(floor, 30, 6) });
+    render();
+    saveState();
+  },
+  'ff-del-corridor': target => {
+    const floor = floors.find(f => f.id === state.currentFloorId);
+    if (!floor || !isAdminRole()) return;
+    floor.corridors = (floor.corridors || []).filter(c => c.id !== target.dataset.ffId);
+    render();
+    saveState();
+  },
+  'ff-aspect': target => {
+    const floor = floors.find(f => f.id === state.currentFloorId);
+    if (!floor || !isAdminRole()) return;
+    const next = (Number(floor.aspect) || 0.62) + Number(target.dataset.dir) * 0.1;
+    floor.aspect = Number(Math.min(2, Math.max(0.3, next)).toFixed(2));
+    render();
+    saveState();
+  },
+  'set-floor-layout': target => setFloorLayout(state.editingFloorId, target.dataset.value),
   'open-settings': () => { renderSettings(); document.getElementById('settingsModal')?.classList.add('open'); },
   'set-theme': target => { setThemePref(target.dataset.value); renderSettings(); },
   'restore-trash': target => restoreFromTrash(target.dataset.trashId),
@@ -1889,6 +2072,11 @@ export function initApp() {
       return;
     }
 
+    if (target.dataset.action === 'ff-snap') {
+      state.layoutSnap = target.checked;
+      return;
+    }
+
     if (target.dataset.action === 'toggle-popups') {
       try { localStorage.setItem(POPUPS_KEY, target.checked ? 'on' : 'off'); } catch (e) { /* ignore */ }
       showToast(target.checked ? 'Popups on.' : 'Popups off.', 'info');
@@ -2014,6 +2202,10 @@ export function initApp() {
   document.addEventListener('drop', handleRoomDrop);
   document.addEventListener('dragend', handleRoomDragEnd);
   document.addEventListener('click', handleClick);
+  document.addEventListener('pointerdown', ffPointerDown);
+  document.addEventListener('pointermove', ffPointerMove);
+  document.addEventListener('pointerup', ffPointerUp);
+  document.addEventListener('pointercancel', ffPointerUp);
   initBackButtonGuard();
   applyTheme();
   // "Auto" follows the OS live, e.g. when Windows switches to dark at night.

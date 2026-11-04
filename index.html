@@ -88,7 +88,7 @@
         <label class="field-label" for="addRoomName">Room name</label>
         <input class="field-input" id="addRoomName" placeholder="e.g. Room 9" />
       </div>
-      <div class="field-group">
+      <div class="field-group ar-place">
         <div class="field-label">Side of the corridor</div>
         <div class="seg" role="radiogroup" aria-label="Side of the corridor">
           <button type="button" class="seg-btn" role="radio" data-action="add-room-side" data-side="left">Left</button>
@@ -96,7 +96,7 @@
         </div>
         <input type="hidden" id="addRoomSide" value="left" />
       </div>
-      <div class="field-group">
+      <div class="field-group ar-place">
         <label class="field-label" for="addRoomPos">Where</label>
         <select class="field-select" id="addRoomPos"></select>
       </div>
@@ -171,6 +171,11 @@
       <div class="field-group">
         <label class="field-label" for="editFloorName">Floor name</label>
         <input class="field-input" id="editFloorName" placeholder="e.g. Floor 2, Wing B, ICU" />
+      </div>
+      <div class="field-group">
+        <div class="field-label">Layout</div>
+        <div class="seg" role="radiogroup" aria-label="Floor layout" id="floorLayoutSeg"></div>
+        <p class="set-help" id="floorLayoutHelp"></p>
       </div>
       <div class="fm-stats" id="floorMgrStats"></div>
       <div id="floorMgrRooms"></div>

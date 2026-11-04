@@ -428,3 +428,12 @@ would need rethinking if this ever handled anything actually sensitive or advers
     added by `commitDeviceStatus()` and by the midnight auto-free. Shown in the device panel.
 20. **Settings** (gear in the header): theme (stored per browser, `hrm-theme`), teammate
     popups on/off (`hrm-popups`), and Recently deleted for admins.
+21. **Custom floor layouts.** `floor.layout` is `'corridor'` (default, the straight
+    two-sided view) or `'free'`. In free mode each room has `room.box {x,y,w,h}` and the
+    floor has `floor.corridors [{id,x,y,w,h}]`, all in % of a canvas whose shape is
+    `floor.aspect` (height/width). `renderFreeFloor()` draws it; admins edit it with
+    Edit layout (`state.layoutEditing`, this tab only): pointer drag to move, corner to
+    resize, corridor pieces added/deleted from the toolbar, saved on drop. Switching a
+    floor to Custom runs `convertFloorToFree()`, which lays out the current straight
+    corridor so nothing starts from zero; switching back keeps the boxes for later.
+    `side`/`pos` are still maintained so the straight view keeps working.
