@@ -298,12 +298,7 @@ export function deviceHTML(dev, room) {
 }
 
 export function renderHeader() {
-  const floorRooms = rooms.filter(r => r.floorId === state.currentFloorId);
-  // Both pills describe the CURRENT floor. `tot` used to sum devices across
-  // every floor while the rooms pill counted only this one, so the header
-  // read "8 ROOMS · 55 DEVICES" directly above a subheader saying
-  // "8 rooms · 48 devices".
-  const tot = floorRooms.reduce((sum, room) => sum + deviceCount(room), 0);
+  // Room/device totals live in Edit floor now, not in the header.
   const session = getAuthSession();
   const isAdm = isAdminSession();
   const roleChip = session
@@ -324,8 +319,6 @@ export function renderHeader() {
         </div>
       </div>
       <button class="hdr-quick-btn${state.searchFilters?.status === STATUS.FREE ? ' active' : ''}" data-action="show-free-now" type="button" title="Show every free device across all floors">Free Now</button>
-      <div class="hdr-pill">${floorRooms.length} ROOMS</div>
-      <div class="hdr-pill">${tot} DEVICES</div>
       ${themeButtonHTML()}
       ${session ? `
         <button class="hdr-bell-btn" data-action="open-notifications" type="button" title="Recent activity">
@@ -524,7 +517,9 @@ export function renderCorridor() {
   const rightRooms = floorRooms.filter(room => room.side === 'right').sort((a, b) => a.pos - b.pos);
   // One room per side per row: the floor view mirrors the real corridor.
   const perSide = 1;
-  const rowCount = Math.max(Math.ceil(Math.max(leftRooms.length, rightRooms.length) / perSide), 1);
+  // Admins get one extra empty row at the end, so there's always a visible
+  // "+ Add room here" on both sides of the corridor.
+  const rowCount = Math.max(Math.ceil(Math.max(leftRooms.length, rightRooms.length) / perSide), 1) + (isAdmin() ? 1 : 0);
 
   const floorTabs = floors.map(floor => `
     <button class="floor-tab${floor.id === state.currentFloorId ? ' active' : ''}" data-action="switch-floor" data-floor="${floor.id}">${esc(floor.name)}</button>
@@ -534,9 +529,9 @@ export function renderCorridor() {
 
   for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
 
-    const renderCell = room => {
+    const renderCell = (room, side, slotIndex, isFirstEmpty) => {
       if (!room) {
-        return `<div class="empty-cell"><span>Drop room here</span></div>`;
+        return `<div class="empty-cell">${isAdmin() && isFirstEmpty ? `<button type="button" class="add-here-btn" data-action="add-room-at" data-side="${side}" data-slot-index="${slotIndex}">+ Add room here</button>` : ''}<span class="drop-here">Drop room here</span></div>`;
       }
       const hasInUse = roomHasInUse(room);
       const counts = getRoomStatusCounts(room);
@@ -568,7 +563,7 @@ export function renderCorridor() {
       for (let k = 0; k < perSide; k++) {
         const index = rowIndex * perSide + k;
         const room = list[index];
-        html += `<div class="room-slot" data-room-slot="true" data-floor="${state.currentFloorId}" data-side="${side}" data-slot-index="${index + 1}" data-room-id="${room ? room.id : ''}">${renderCell(room)}</div>`;
+        html += `<div class="room-slot" data-room-slot="true" data-floor="${state.currentFloorId}" data-side="${side}" data-slot-index="${index + 1}" data-room-id="${room ? room.id : ''}">${renderCell(room, side, index + 1, index === list.length)}</div>`;
       }
       return html;
     };

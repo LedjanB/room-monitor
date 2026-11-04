@@ -1593,3 +1593,50 @@ body{
 .dev-actions{top:-6px;right:-16px;}
 :root[data-theme="dark"] .tv-outer{box-shadow:0 0 0 1px rgba(255,255,255,.08),2px 3px 0 rgba(0,0,0,.4);}
 @media (max-width: 980px){ .room-wrap > .room-canvas{width:100%;} }
+
+/* ── Add room: side toggle ───────────────────────────────────────── */
+.seg{display:flex;gap:6px;}
+.seg-btn{flex:1;font-family:inherit;font-size:13px;font-weight:800;padding:9px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--panel-bg);color:var(--text2);cursor:pointer;}
+.seg-btn:hover{border-color:var(--text3);}
+.seg-btn.is-on{background:var(--text);border-color:var(--text);color:var(--panel-bg);}
+.seg-btn:focus-visible,.fm-btn:focus-visible,.fm-add:focus-visible,.add-here-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+/* ── Corridor: empty spots invite adding a room ──────────────────── */
+.empty-cell{display:flex;align-items:center;justify-content:center;}
+.empty-cell .drop-here{display:none;}
+body.dragging-room .empty-cell .drop-here{display:inline;}
+body.dragging-room .empty-cell .add-here-btn{display:none;}
+.add-here-btn{font-family:inherit;font-size:13px;font-weight:800;color:var(--text3);background:none;border:none;border-radius:8px;padding:10px 14px;cursor:pointer;width:100%;height:100%;min-height:72px;}
+.add-here-btn:hover{color:var(--text);background:rgba(127,127,127,.08);}
+
+/* ── Edit floor = floor manager ──────────────────────────────────── */
+.modal.modal-wide{width:min(760px,95vw);}
+.fm-stats{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--text3);margin:-2px 0 16px;}
+.fm-stats b{color:var(--text);font-weight:800;}
+.fm-corridor{display:grid;grid-template-columns:1fr 18px 1fr;gap:12px;align-items:start;}
+.fm-hall{align-self:stretch;border-left:2px dashed var(--border);margin:30px auto 8px;width:0;}
+.fm-col-title{font-size:12px;font-weight:800;color:var(--text3);margin-bottom:8px;}
+.fm-list{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px;}
+.fm-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 8px 8px 12px;border:1.5px solid var(--border);border-radius:10px;background:var(--panel-bg);}
+.fm-main{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1;}
+.fm-name{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.fm-meta{font-size:12px;color:var(--text3);white-space:nowrap;}
+.fm-rename{font-size:13px;padding:6px 8px;min-width:0;flex:1;}
+.fm-tools{display:flex;gap:2px;flex-shrink:0;}
+.fm-btn{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:6px;background:none;color:var(--text3);cursor:pointer;}
+.fm-btn:hover:not(:disabled){background:var(--bg2);color:var(--text);}
+.fm-btn.danger:hover{background:var(--red-bg);color:var(--red);}
+.fm-btn:disabled{opacity:.3;cursor:default;}
+.fm-empty{font-size:13px;color:var(--text4);padding:10px 12px;border:1.5px dashed var(--border);border-radius:10px;}
+.fm-add{width:100%;font-family:inherit;font-size:13px;font-weight:800;color:var(--text2);background:none;border:1.5px dashed var(--border2);border-radius:10px;padding:9px;cursor:pointer;}
+.fm-add:hover{border-color:var(--text3);color:var(--text);}
+.fm-add-row{display:flex;gap:6px;align-items:center;}
+.fm-add-row .field-input{flex:1;min-width:0;padding:8px 10px;font-size:13px;}
+.fm-hint{font-size:12px;color:var(--text4);margin-top:14px;}
+@media (max-width: 600px){
+  .fm-corridor{grid-template-columns:1fr;}
+  .fm-hall{display:none;}
+}
+:root[data-theme="dark"] .fm-row{background:#1b1d22;border-color:#2b2f36;}
+:root[data-theme="dark"] .seg-btn{background:#1b1d22;border-color:#2b2f36;}
+:root[data-theme="dark"] .seg-btn.is-on{background:var(--text);color:#101114;}

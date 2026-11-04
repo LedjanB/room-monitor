@@ -80,29 +80,30 @@
 <div class="modal-bg" id="addRoomModal">
   <div class="modal">
     <div class="modal-hdr">
-      <span class="modal-title">Add Room</span>
+      <span class="modal-title">Add room</span>
       <button class="panel-x" data-action="close-modal" data-modal="addRoomModal">×</button>
     </div>
     <div class="modal-body">
       <div class="field-group">
-        <label class="field-label">Room Name</label>
-        <input class="field-input" id="addRoomName" placeholder="e.g. Dhoma 8" />
+        <label class="field-label" for="addRoomName">Room name</label>
+        <input class="field-input" id="addRoomName" placeholder="e.g. Room 9" />
       </div>
       <div class="field-group">
-        <label class="field-label">Side</label>
-        <select class="field-select" id="addRoomSide">
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
+        <div class="field-label">Side of the corridor</div>
+        <div class="seg" role="radiogroup" aria-label="Side of the corridor">
+          <button type="button" class="seg-btn" role="radio" data-action="add-room-side" data-side="left">Left</button>
+          <button type="button" class="seg-btn" role="radio" data-action="add-room-side" data-side="right">Right</button>
+        </div>
+        <input type="hidden" id="addRoomSide" value="left" />
       </div>
       <div class="field-group">
-        <label class="field-label">Position on Corridor</label>
-        <input class="field-input" id="addRoomPos" type="number" min="1" value="1" />
+        <label class="field-label" for="addRoomPos">Where</label>
+        <select class="field-select" id="addRoomPos"></select>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" data-action="close-modal" data-modal="addRoomModal">Cancel</button>
-      <button class="btn-primary" data-action="confirm-add-room">Add Room</button>
+      <button class="btn-primary" data-action="confirm-add-room">Add room</button>
     </div>
   </div>
 </div>
@@ -161,26 +162,26 @@
 
 <!-- edit floor modal -->
 <div class="modal-bg" id="editFloorModal">
-  <div class="modal">
+  <div class="modal modal-wide">
     <div class="modal-hdr">
-      <span class="modal-title">Edit Floor / Corridor</span>
+      <span class="modal-title">Edit floor</span>
       <button class="panel-x" data-action="close-modal" data-modal="editFloorModal">×</button>
     </div>
     <div class="modal-body">
       <div class="field-group">
-        <label class="field-label">Floor / Corridor Name</label>
+        <label class="field-label" for="editFloorName">Floor name</label>
         <input class="field-input" id="editFloorName" placeholder="e.g. Floor 2, Wing B, ICU" />
       </div>
+      <div class="fm-stats" id="floorMgrStats"></div>
+      <div id="floorMgrRooms"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-delete-left" data-action="delete-editing-floor">Delete Floor</button>
-      <button class="btn-cancel" data-action="close-modal" data-modal="editFloorModal">Cancel</button>
-      <button class="btn-primary" data-action="confirm-edit-floor">Save Changes</button>
+      <button class="btn-delete-left" data-action="delete-editing-floor">Delete floor</button>
+      <button class="btn-primary" data-action="confirm-edit-floor">Done</button>
     </div>
   </div>
 </div>
 
-<!-- user management modal -->
 <div class="modal-bg" id="userMgmtModal">
   <div class="modal modal-lg">
     <div class="modal-hdr">

@@ -37,6 +37,8 @@ import {
   setSyncErrorHandler,
   setConnectionHandler,
   serverNow,
+  deviceCount,
+  getRoomStatusCounts,
 } from './hospital_room_monitor_v9.data.js';
 import {
   render,
@@ -398,63 +400,76 @@ This will also remove its status, position, notes, and saved custom fields.`,
   });
 }
 
-export function openAddRoomModal() {
+function floorSideRooms(side) {
+  return rooms
+    .filter(room => room.floorId === state.currentFloorId && room.side === side)
+    .sort((a, b) => a.pos - b.pos);
+}
+
+/** Fills the "Where" dropdown for the chosen side: at the top, after each
+ *  room, defaulting to the given slot (1-based) or the end. */
+function fillAddRoomWhere(side, slotIndex) {
+  const select = document.getElementById('addRoomPos');
+  const sideInput = document.getElementById('addRoomSide');
+  if (sideInput) sideInput.value = side;
+  document.querySelectorAll('[data-action="add-room-side"]').forEach(btn => {
+    const on = btn.dataset.side === side;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-checked', String(on));
+  });
+  if (!select) return;
+  const list = floorSideRooms(side);
+  const options = [`<option value="1">At the start of the ${side} side</option>`]
+    .concat(list.map((room, index) => `<option value="${index + 2}">After ${esc(room.name)}</option>`));
+  select.innerHTML = options.join('');
+  const wanted = Math.min(Math.max(Number.parseInt(slotIndex, 10) || list.length + 1, 1), list.length + 1);
+  select.value = String(wanted);
+}
+
+export function openAddRoomModal(side = 'left', slotIndex = null) {
   if (!isAdminRole()) return;
   const nameInput = document.getElementById('addRoomName');
-  const sideSelect = document.getElementById('addRoomSide');
-  const positionInput = document.getElementById('addRoomPos');
-
-  if (nameInput) nameInput.value = '';
-  if (sideSelect) sideSelect.value = 'left';
-  if (positionInput) {
-    positionInput.value = Math.max(...rooms.filter(room => room.floorId === state.currentFloorId).map(room => room.pos), 0) + 1;
-    positionInput.classList.remove('error');
+  if (nameInput) {
+    nameInput.value = '';
+    nameInput.classList.remove('error');
   }
-
+  fillAddRoomWhere(side === 'right' ? 'right' : 'left', slotIndex);
   const modal = document.getElementById('addRoomModal');
   if (modal) modal.classList.add('open');
+  setTimeout(() => nameInput?.focus(), 30);
+}
+
+/** Adds a room on the current floor at a 1-based spot on one side.
+ *  Returns the error message, or '' on success. */
+function addRoomAt(name, side, slotIndex) {
+  const nameError = validateName(name, 'Room name');
+  if (nameError) return nameError;
+  const nameLower = name.toLowerCase();
+  if (rooms.some(r => r.floorId === state.currentFloorId && r.name?.toLowerCase() === nameLower)) {
+    return 'A room with that name already exists on this floor.';
+  }
+  const id = uid('room');
+  rooms.push({ id, floorId: state.currentFloorId, name, side, pos: 9999, devices: [], notes: [] });
+  moveRoomToSlot(id, side, slotIndex || 9999);
+  return '';
 }
 
 export function confirmAddRoom() {
   if (!isAdminRole()) return;
   const nameInput = document.getElementById('addRoomName');
-  const sideSelect = document.getElementById('addRoomSide');
-  const positionInput = document.getElementById('addRoomPos');
-
+  const side = document.getElementById('addRoomSide')?.value === 'right' ? 'right' : 'left';
+  const slot = document.getElementById('addRoomPos')?.value;
   const name = normalizeText(nameInput?.value);
-  const side = sideSelect ? sideSelect.value : 'left';
-  const position = validatePosition(positionInput?.value);
-
-  [nameInput, positionInput].forEach(input => input?.classList.remove('error'));
-
-  const nameError = validateName(name, 'Room name');
-  if (nameError) {
-    markError(nameInput, null, nameError);
+  nameInput?.classList.remove('error');
+  const error = addRoomAt(name, side, slot);
+  if (error) {
+    markError(nameInput, null, error);
     return;
   }
-  if (!position.valid) {
-    markError(positionInput, null, position.message);
-    return;
-  }
-
-  const nameLower = name.toLowerCase();
-  if (rooms.some(r => r.floorId === state.currentFloorId && r.name?.toLowerCase() === nameLower)) {
-    markError(nameInput, null, 'A room with that name already exists on this floor.');
-    return;
-  }
-
-  const conflict = rooms.find(r => r.floorId === state.currentFloorId && r.side === side && r.pos === position.value);
-  if (conflict) {
-    markError(positionInput, null, `Position ${position.value} on the ${side} side is already used by ${conflict.name}. Choose another position.`);
-    return;
-  }
-
-  const id = uid('room');
-  rooms.push({ id, floorId: state.currentFloorId, name, side, pos: position.value, devices: [], notes: [] });
   closeModal('addRoomModal');
   render();
   saveState();
-  showToast('Room added successfully.');
+  showToast(`${name} added.`);
 }
 
 export function openEditRoomModal(roomId) {
@@ -546,6 +561,7 @@ export function deleteRoom(roomId) {
       state.currentRoom = null;
       render();
       saveState();
+      if (document.getElementById('editFloorModal')?.classList.contains('open')) renderFloorManager();
       showToast('Room deleted.', 'success');
     },
   });
@@ -601,8 +617,136 @@ export function openEditFloorModal(floorId) {
     input.value = floor.name;
     input.classList.remove('error');
   }
+  floorMgrAdding = null;
+  floorMgrRenaming = null;
+  renderFloorManager();
   const modal = document.getElementById('editFloorModal');
   if (modal) modal.classList.add('open');
+}
+
+let floorMgrAdding = null;   // 'left' | 'right' while the inline add row is open
+let floorMgrRenaming = null; // room id being renamed inline
+
+const fmIcon = {
+  up: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 8.5L7 5l3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  down: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 5.5L7 9l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  left: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8.5 3.5L5 7l3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  right: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5.5 3.5L9 7l-3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  edit: '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9 2l3 3-8 8H1v-3l8-8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  trash: '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 4h9M5.5 4V2.5h3V4M3.5 4l.6 7.5h5.8l.6-7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+
+function renderFloorManager() {
+  const statsEl = document.getElementById('floorMgrStats');
+  const roomsEl = document.getElementById('floorMgrRooms');
+  if (!roomsEl) return;
+  const floorId = state.editingFloorId;
+  const floorRooms = rooms.filter(room => room.floorId === floorId);
+  const devices = floorRooms.reduce((sum, room) => sum + deviceCount(room), 0);
+  const counts = floorRooms.reduce((acc, room) => {
+    const c = getRoomStatusCounts(room);
+    acc.inuse += c.inuse || 0;
+    acc.na += c.not_available || 0;
+    return acc;
+  }, { inuse: 0, na: 0 });
+  if (statsEl) {
+    statsEl.innerHTML = `<span><b>${floorRooms.length}</b> rooms</span><span><b>${devices}</b> devices</span><span><b>${counts.inuse}</b> in use</span>${counts.na ? `<span><b>${counts.na}</b> not available</span>` : ''}`;
+  }
+
+  const column = side => {
+    const list = rooms.filter(room => room.floorId === floorId && room.side === side).sort((a, b) => a.pos - b.pos);
+    const other = side === 'left' ? 'right' : 'left';
+    const rows = list.map((room, index) => {
+      const n = deviceCount(room);
+      const nameCell = floorMgrRenaming === room.id
+        ? `<input class="field-input fm-rename" id="fmRename_${room.id}" value="${esc(room.name)}" data-action="fm-rename-save" data-room="${room.id}" />
+           <button class="btn-mini primary" data-action="fm-rename-save" data-room="${room.id}">Save</button>`
+        : `<span class="fm-name">${esc(room.name)}</span><span class="fm-meta">${n} ${n === 1 ? 'device' : 'devices'}</span>`;
+      return `<li class="fm-row">
+        <div class="fm-main">${nameCell}</div>
+        <div class="fm-tools">
+          <button class="fm-btn" data-action="fm-move" data-room="${room.id}" data-dir="-1" title="Move up" aria-label="Move ${esc(room.name)} up" ${index === 0 ? 'disabled' : ''}>${fmIcon.up}</button>
+          <button class="fm-btn" data-action="fm-move" data-room="${room.id}" data-dir="1" title="Move down" aria-label="Move ${esc(room.name)} down" ${index === list.length - 1 ? 'disabled' : ''}>${fmIcon.down}</button>
+          <button class="fm-btn" data-action="fm-switch" data-room="${room.id}" title="Move to the ${other} side" aria-label="Move ${esc(room.name)} to the ${other} side">${side === 'left' ? fmIcon.right : fmIcon.left}</button>
+          <button class="fm-btn" data-action="fm-rename" data-room="${room.id}" title="Rename" aria-label="Rename ${esc(room.name)}">${fmIcon.edit}</button>
+          <button class="fm-btn danger" data-action="fm-delete" data-room="${room.id}" title="Delete room" aria-label="Delete ${esc(room.name)}">${fmIcon.trash}</button>
+        </div>
+      </li>`;
+    }).join('');
+    const addRow = floorMgrAdding === side
+      ? `<div class="fm-add-row"><input class="field-input" id="fmAddName_${side}" placeholder="Room name" data-action="fm-add-save" data-side="${side}" /><button class="btn-mini primary" data-action="fm-add-save" data-side="${side}">Add</button><button class="btn-mini" data-action="fm-add-cancel">Cancel</button></div>`
+      : `<button class="fm-add" data-action="fm-add" data-side="${side}">+ Add room on the ${side}</button>`;
+    return `<div class="fm-col">
+      <div class="fm-col-title">${side === 'left' ? 'Left side' : 'Right side'}</div>
+      <ol class="fm-list">${rows || '<li class="fm-empty">No rooms yet</li>'}</ol>
+      ${addRow}
+    </div>`;
+  };
+
+  roomsEl.innerHTML = `<div class="fm-corridor">${column('left')}<div class="fm-hall" aria-hidden="true"></div>${column('right')}</div>
+    <div class="fm-hint">Top of each list is the start of the corridor. You can also drag rooms on the floor view.</div>`;
+
+  if (floorMgrAdding) setTimeout(() => document.getElementById(`fmAddName_${floorMgrAdding}`)?.focus(), 20);
+  if (floorMgrRenaming) setTimeout(() => { const el = document.getElementById(`fmRename_${floorMgrRenaming}`); el?.focus(); el?.select(); }, 20);
+}
+
+function floorMgrChanged(message) {
+  render();
+  saveState();
+  renderFloorManager();
+  if (message) showToast(message);
+}
+
+function fmMove(roomId, dir) {
+  const room = findRoom(roomId);
+  if (!room) return;
+  const list = rooms.filter(r => r.floorId === room.floorId && r.side === room.side).sort((a, b) => a.pos - b.pos);
+  const index = list.findIndex(r => r.id === roomId);
+  const target = index + dir;
+  if (target < 0 || target >= list.length) return;
+  moveRoomToSlot(roomId, room.side, target + 1);
+  floorMgrChanged();
+}
+
+function fmSwitch(roomId) {
+  const room = findRoom(roomId);
+  if (!room) return;
+  const list = rooms.filter(r => r.floorId === room.floorId && r.side === room.side).sort((a, b) => a.pos - b.pos);
+  const index = list.findIndex(r => r.id === roomId);
+  const other = room.side === 'left' ? 'right' : 'left';
+  moveRoomToSlot(roomId, other, index + 1); // straight across the corridor
+  floorMgrChanged(`${room.name} moved to the ${other} side.`);
+}
+
+function fmRenameSave(roomId) {
+  const room = findRoom(roomId);
+  const input = document.getElementById(`fmRename_${roomId}`);
+  if (!room || !input) return;
+  const name = normalizeText(input.value);
+  if (name === room.name) { floorMgrRenaming = null; renderFloorManager(); return; }
+  const nameError = validateName(name, 'Room name');
+  const dup = rooms.some(r => r.id !== room.id && r.floorId === room.floorId && r.name?.toLowerCase() === name.toLowerCase());
+  if (nameError || dup) {
+    showToast(nameError || 'A room with that name already exists on this floor.', 'error');
+    input.focus();
+    return;
+  }
+  room.name = name;
+  floorMgrRenaming = null;
+  floorMgrChanged('Room renamed.');
+}
+
+function fmAddSave(side) {
+  const input = document.getElementById(`fmAddName_${side}`);
+  const name = normalizeText(input?.value);
+  const error = addRoomAt(name, side, 9999);
+  if (error) {
+    showToast(error, 'error');
+    input?.focus();
+    return;
+  }
+  floorMgrAdding = null;
+  floorMgrChanged(`${name} added.`);
 }
 
 export function confirmEditFloor() {
@@ -624,12 +768,14 @@ export function confirmEditFloor() {
     return;
   }
 
+  const renamed = floor.name !== name;
   floor.name = name;
   closeModal('editFloorModal');
+  if (!renamed) return;
   render();
   initSearchFilters();
   saveState();
-  showToast('Floor updated.');
+  showToast('Floor renamed.');
 }
 
 export function deleteFloor(floorId) {
@@ -1174,6 +1320,16 @@ const actionHandlers = {
   'edit-floor': target => openEditFloorModal(target.dataset.floor),
   'delete-floor': target => deleteFloor(target.dataset.floor),
   'add-room': () => openAddRoomModal(),
+  'add-room-at': target => openAddRoomModal(target.dataset.side, target.dataset.slotIndex),
+  'add-room-side': target => fillAddRoomWhere(target.dataset.side),
+  'fm-move': target => fmMove(target.dataset.room, Number(target.dataset.dir)),
+  'fm-switch': target => fmSwitch(target.dataset.room),
+  'fm-rename': target => { floorMgrRenaming = target.dataset.room; floorMgrAdding = null; renderFloorManager(); },
+  'fm-rename-save': target => fmRenameSave(target.dataset.room),
+  'fm-delete': target => deleteRoom(target.dataset.room),
+  'fm-add': target => { floorMgrAdding = target.dataset.side; floorMgrRenaming = null; renderFloorManager(); },
+  'fm-add-save': target => fmAddSave(target.dataset.side),
+  'fm-add-cancel': () => { floorMgrAdding = null; renderFloorManager(); },
   'add-device': target => openAddDevModal(target.dataset.room),
   'add-bed': target => addBedToRoom(target.dataset.room),
   'edit-room': target => openEditRoomModal(target.dataset.room),
@@ -1581,6 +1737,8 @@ export function initApp() {
         return;
       }
     }
+    if (event.key === 'Enter' && target?.dataset?.action === 'fm-add-save') { fmAddSave(target.dataset.side); return; }
+    if (event.key === 'Enter' && target?.dataset?.action === 'fm-rename-save') { fmRenameSave(target.dataset.room); return; }
     if (target?.dataset?.action === 'save-dev-sn' && event.key === 'Enter') {
       saveDevSn(getDeviceId(target), target.dataset.room);
       return;

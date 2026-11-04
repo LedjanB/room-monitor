@@ -410,3 +410,11 @@ would need rethinking if this ever handled anything actually sensitive or advers
     script in `index.html` and kept in sync by `applyTheme()` (render.js). The header
     button cycles Auto → Light → Dark, stored in `localStorage` (`hrm-theme`). All dark
     styles are `:root[data-theme="dark"] …` overrides at the end of the CSS.
+16. **Edit floor is the floor manager.** `renderFloorManager()` (interaction.js) lists both
+    sides of the corridor in order; move up/down, switch side, rename, delete and add all
+    go through `moveRoomToSlot()` / `addRoomAt()` and save immediately. Top of a list = start
+    of the corridor. Room/device totals for the floor are shown there (not in the header).
+17. **Adding a room.** Admins get one extra empty row at the end of the corridor; the first
+    empty spot on each side shows "+ Add room here", which opens Add room with that side
+    and spot preselected. Add room asks for side (Left/Right) and "Where" (at the start /
+    after room X) instead of a raw position number.
