@@ -597,7 +597,11 @@ export function renderCorridor() {
     </div>`;
   }
 
+  const resizing = isAdmin() && !isFree && state.corridorResizing === currentFloor.id;
   const adminActions = isAdmin() ? `<div class="floor-manage-actions">
+    ${isFree ? '' : (resizing
+      ? `<button class="btn-sm" data-action="corr-done">Done</button>`
+      : `<button class="btn-sm ghost" data-action="corr-resize">Resize corridor</button>`)}
     <button class="btn-sm ghost" data-action="edit-floor" data-floor="${currentFloor.id}">Edit Floor</button>
     <button class="btn-sm ghost" data-action="add-room">+ Add Room</button>
   </div>` : '';
@@ -632,7 +636,9 @@ export function renderCorridor() {
       ${floorTabs}
       ${isAdmin() ? `<button class="floor-tab-add admin-only" data-action="add-floor" title="Add floor/corridor">＋</button>` : ''}
     </div>
-    ${isFree ? renderFreeFloor(currentFloor, floorRooms) : `<div class="floor-plan">
+    ${resizing ? '<div class="corr-tip">Drag the blue handle left or right to make the corridor wider or narrower. Click Done when finished.</div>' : ''}
+    ${isFree ? renderFreeFloor(currentFloor, floorRooms) : `<div class="floor-plan${resizing ? ' corr-resizing' : ''}" style="--corr-w:${Number(currentFloor.corridorWidth) || 60}px;">
+      ${resizing ? '<div class="corr-handle" data-corr-handle="1" title="Drag to resize the corridor" aria-label="Resize corridor"></div>' : ''}
       <div class="cap"></div>
       ${rows}
       <div class="cap bot"></div>

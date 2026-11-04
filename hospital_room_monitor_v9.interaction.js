@@ -999,6 +999,37 @@ function nextRoomName(floorId) {
 
 let ffDrag = null;
 
+// Straight corridor: drag the handle to change the corridor's width.
+let corrDrag = null;
+function corrPointerDown(event) {
+  const handle = event.target.closest?.('[data-corr-handle]');
+  if (!handle || !isAdminRole()) return;
+  event.preventDefault();
+  const plan = handle.closest('.floor-plan');
+  const floor = floors.find(f => f.id === state.currentFloorId);
+  if (!plan || !floor) return;
+  corrDrag = { plan, floor, startX: event.clientX, startW: Number(floor.corridorWidth) || 60 };
+  handle.classList.add('dragging');
+  try { handle.setPointerCapture(event.pointerId); } catch (e) { /* ignore */ }
+}
+function corrPointerMove(event) {
+  if (!corrDrag) return;
+  // The corridor sits in the middle, so it grows on both sides: 2x the mouse move.
+  const w = Math.round(ffClamp(corrDrag.startW + (event.clientX - corrDrag.startX) * 2, 24, 420));
+  corrDrag.w = w;
+  corrDrag.plan.style.setProperty('--corr-w', `${w}px`);
+}
+function corrPointerUp() {
+  if (!corrDrag) return;
+  const { floor, w } = corrDrag;
+  corrDrag = null;
+  document.querySelector('[data-corr-handle]')?.classList.remove('dragging');
+  if (w && w !== floor.corridorWidth) {
+    floor.corridorWidth = w;
+    saveState();
+  }
+}
+
 function ffPointerDown(event) {
   if (event.button !== 0) return;
   const canvas = event.target.closest?.('.fmap.editing');
@@ -1906,6 +1937,8 @@ const actionHandlers = {
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
   'ff-edit': () => { state.layoutEditing = state.currentFloorId; state.layoutCorridor = false; state.layoutSelected = null; state.layoutRenaming = false; render(); },
   'ff-done': () => { state.layoutEditing = null; state.layoutSelected = null; state.layoutRenaming = false; state.layoutCorridor = false; render(); showToast('Layout saved.'); },
+  'corr-resize': () => { state.corridorResizing = state.currentFloorId; render(); },
+  'corr-done': () => { state.corridorResizing = null; render(); showToast('Corridor size saved.'); },
   'ff-corridor': () => { state.layoutEditing = state.currentFloorId; state.layoutCorridor = true; state.layoutSelected = null; state.layoutRenaming = false; render(); },
   'fmap-rename': () => { state.layoutRenaming = true; render(); },
   'fmap-rename-save': () => fmapRenameSave(),
@@ -2394,6 +2427,9 @@ export function initApp() {
   document.addEventListener('dragend', handleRoomDragEnd);
   document.addEventListener('click', handleClick);
   document.addEventListener('pointerdown', ffPointerDown);
+  document.addEventListener('pointerdown', corrPointerDown);
+  document.addEventListener('pointermove', corrPointerMove);
+  document.addEventListener('pointerup', corrPointerUp);
   document.addEventListener('pointermove', ffPointerMove);
   document.addEventListener('pointerup', ffPointerUp);
   document.addEventListener('pointercancel', ffPointerUp);

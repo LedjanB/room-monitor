@@ -26,7 +26,8 @@ export const state = {
   layoutEditing: null, // floor id whose custom layout is being edited (admin, this tab only)
   layoutSelected: null, // room id selected in the layout editor
   layoutRenaming: false,
-  layoutCorridor: false, // "Resize corridor" mode inside the layout editor
+  layoutCorridor: false,
+  corridorResizing: null, // floor id while resizing the straight corridor // "Resize corridor" mode inside the layout editor
   uidCounter: 1000,
   searchFilters: {
     floorId: 'all',
