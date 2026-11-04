@@ -428,12 +428,13 @@ would need rethinking if this ever handled anything actually sensitive or advers
     added by `commitDeviceStatus()` and by the midnight auto-free. Shown in the device panel.
 20. **Settings** (gear in the header): theme (stored per browser, `hrm-theme`), teammate
     popups on/off (`hrm-popups`), and Recently deleted for admins.
-21. **Custom floor layouts.** `floor.layout` is `'corridor'` (default, the straight
-    two-sided view) or `'free'`. In free mode each room has `room.box {x,y,w,h}` and the
-    floor has `floor.corridors [{id,x,y,w,h}]`, all in % of a canvas whose shape is
-    `floor.aspect` (height/width). `renderFreeFloor()` draws it; admins edit it with
-    Edit layout (`state.layoutEditing`, this tab only): pointer drag to move, corner to
-    resize, corridor pieces added/deleted from the toolbar, saved on drop. Switching a
-    floor to Custom runs `convertFloorToFree()`, which lays out the current straight
-    corridor so nothing starts from zero; switching back keeps the boxes for later.
-    `side`/`pos` are still maintained so the straight view keeps working.
+21. **Floor plan layout.** `floor.layout` is `'corridor'` (default, the straight two-sided
+    view) or `'free'` ("Floor plan" in the UI). In floor plan mode each room has
+    `room.box {x,y,w,h}` in % of a canvas shaped by `floor.aspect` (height/width); the
+    corridor is just the floor left between rooms. Rooms are tinted by status (any in use =
+    red, any not available = orange, else green). `renderFreeFloor()` draws it. Admins use
+    Edit layout (`state.layoutEditing`, this tab only): click to select (handles + Rename /
+    Open / Delete popover), drag to move, handles to resize, drag on empty floor to draw a
+    new room (named straight away), Delete key removes. Everything snaps to a 1% grid and
+    to other rooms' walls. Switching to Floor plan runs `convertFloorToFree()` (left-side
+    rooms along the top, right-side along the bottom); switching back keeps the boxes.

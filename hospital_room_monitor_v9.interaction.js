@@ -753,6 +753,7 @@ export function deleteRoom(roomId) {
       const index = rooms.findIndex(r => r.id === roomId);
       if (index !== -1) rooms.splice(index, 1);
       state.currentRoom = null;
+      if (state.layoutSelected === roomId) { state.layoutSelected = null; state.layoutRenaming = false; }
       render();
       saveState();
       if (document.getElementById('editFloorModal')?.classList.contains('open')) renderFloorManager();
@@ -841,12 +842,12 @@ function renderFloorManager() {
   const helpEl = document.getElementById('floorLayoutHelp');
   if (segEl) {
     const opt = (value, label) => `<button type="button" class="seg-btn${(isFree ? 'free' : 'corridor') === value ? ' is-on' : ''}" role="radio" aria-checked="${(isFree ? 'free' : 'corridor') === value}" data-action="set-floor-layout" data-value="${value}">${label}</button>`;
-    segEl.innerHTML = opt('corridor', 'Straight corridor') + opt('free', 'Custom');
+    segEl.innerHTML = opt('corridor', 'Straight corridor') + opt('free', 'Floor plan');
   }
   if (helpEl) {
     helpEl.textContent = isFree
-      ? 'Arrange rooms and corridor pieces freely: close this and click Edit layout on the floor.'
-      : 'Rooms on two sides of one straight corridor. Switch to Custom for turns, L-shapes or any arrangement; it starts from this layout.';
+      ? 'Rooms drawn like a real floor plan. Close this and click Edit layout on the floor to move, resize or draw rooms.'
+      : 'Rooms on two sides of one straight corridor. Switch to Floor plan for turns, corners or any shape; it starts from this layout.';
   }
   const floorRooms = rooms.filter(room => room.floorId === floorId);
   const devices = floorRooms.reduce((sum, room) => sum + deviceCount(room), 0);
@@ -916,37 +917,51 @@ function renderFloorManager() {
   if (floorMgrRenaming) setTimeout(() => { const el = document.getElementById(`fmRename_${floorMgrRenaming}`); el?.focus(); el?.select(); }, 20);
 }
 
-// ── Custom floor layout (free canvas) ───────────────────────────────
-const FF_MIN = { room: { w: 8, h: 8 }, corridor: { w: 1.5, h: 1.5 } };
-const FF_SNAP = 1;
+// ── Custom floor layout (floor-plan map) ────────────────────────────
+// Rooms are rectangles on a floor (room.box, % of the canvas). The corridor
+// is simply the floor left between them. Admins edit with Edit layout:
+// click to select, drag to move, handles to resize, drag on empty floor to
+// draw a new room. Everything snaps to a 1% grid and to other rooms' walls.
+const FMAP_MIN = 5;      // smallest room, % of canvas
+const FMAP_SNAP = 1.2;   // wall-to-wall snap distance, %
 
-function ffRound(v) {
-  const step = state.layoutSnap !== false ? FF_SNAP : 0.1;
-  return Math.round(v / step) * step;
-}
 function ffClamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
 
-/** Lays the current straight corridor out on the canvas: left rooms, a
- *  corridor down the middle, right rooms, same order. Used the first time
- *  a floor switches to Custom so nobody has to place rooms from scratch. */
+/** Snaps value v to the nearest of `targets` within FMAP_SNAP, else to the grid. */
+function snapTo(v, targets) {
+  let best = null;
+  targets.forEach(t => { if (Math.abs(t - v) <= FMAP_SNAP && (best === null || Math.abs(t - v) < Math.abs(best - v))) best = t; });
+  return best !== null ? best : Math.round(v);
+}
+
+function wallTargets(floorId, exceptId) {
+  const xs = [0, 100];
+  const ys = [0, 100];
+  rooms.forEach(r => {
+    if (r.floorId !== floorId || r.id === exceptId || !r.box) return;
+    xs.push(r.box.x, r.box.x + r.box.w);
+    ys.push(r.box.y, r.box.y + r.box.h);
+  });
+  return { xs, ys };
+}
+
+/** First layout for a floor switched to Custom: left-side rooms along the
+ *  top wall, right-side rooms along the bottom, the corridor between them.
+ *  Same order as the straight view, so it matches what people know. */
 function convertFloorToFree(floor) {
   const list = side => rooms.filter(r => r.floorId === floor.id && r.side === side).sort((a, b) => a.pos - b.pos);
-  const left = list('left');
-  const right = list('right');
-  const rowsN = Math.max(left.length, right.length, 1);
-  const aspect = Math.max(0.45, Math.min(1.6, rowsN * 0.16 + 0.06));
-  floor.aspect = Number(aspect.toFixed(2));
-  const gap = 2;
-  const rowH = (100 - gap * (rowsN + 1)) / rowsN;
-  const place = (room, i, x) => {
+  const top = list('left');
+  const bottom = list('right');
+  const cols = Math.max(top.length, bottom.length, 1);
+  const w = 100 / cols;
+  const roomH = 38;
+  const place = (room, i, y) => {
     if (room.box) return; // keep a layout made earlier
-    room.box = { x, y: Number((gap + i * (rowH + gap)).toFixed(1)), w: 38, h: Number(rowH.toFixed(1)) };
+    room.box = { x: Number((i * w).toFixed(2)), y, w: Number(w.toFixed(2)), h: roomH };
   };
-  left.forEach((room, i) => place(room, i, 4));
-  right.forEach((room, i) => place(room, i, 58));
-  if (!Array.isArray(floor.corridors) || !floor.corridors.length) {
-    floor.corridors = [{ id: uid('cor'), x: 44, y: 0, w: 12, h: 100 }];
-  }
+  top.forEach((room, i) => place(room, i, 0));
+  bottom.forEach((room, i) => place(room, i, 100 - roomH));
+  floor.aspect = Number(Math.min(0.9, Math.max(0.42, 1.6 / cols + 0.3)).toFixed(2));
   floor.layout = 'free';
 }
 
@@ -955,82 +970,161 @@ function setFloorLayout(floorId, layout) {
   const floor = floors.find(f => f.id === floorId);
   if (!floor || (floor.layout || 'corridor') === layout) return;
   if (layout === 'free') convertFloorToFree(floor);
-  else floor.layout = 'corridor'; // boxes/corridors are kept for switching back
-  if (layout !== 'free' && state.layoutEditing === floorId) state.layoutEditing = null;
+  else floor.layout = 'corridor'; // boxes are kept for switching back
+  if (state.layoutEditing === floorId) state.layoutEditing = null;
   render();
   saveState();
   renderFloorManager();
-  showToast(layout === 'free' ? 'Custom layout on. Use Edit layout on the floor to arrange it.' : 'Straight corridor layout on.');
+  showToast(layout === 'free' ? 'Floor plan layout on. Click Edit layout on the floor to arrange rooms.' : 'Straight corridor layout on.');
 }
 
-/** Free spot for a new room on a custom floor: first place it doesn't overlap. */
-function freeSpotFor(floor, w = 22, h = 18) {
-  const boxes = rooms.filter(r => r.floorId === floor.id && r.box).map(r => r.box)
-    .concat(floor.corridors || []);
+/** Empty spot for a new room on a floor-plan floor. */
+function freeSpotFor(floor, w = 16, h = 26) {
+  const boxes = rooms.filter(r => r.floorId === floor.id && r.box).map(r => r.box);
   const hits = (x, y) => boxes.some(b => x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y);
-  for (let y = 2; y + h <= 100; y += 4) {
-    for (let x = 2; x + w <= 100; x += 4) {
+  for (let y = 0; y + h <= 100; y += 2) {
+    for (let x = 0; x + w <= 100; x += 2) {
       if (!hits(x, y)) return { x, y, w, h };
     }
   }
-  return { x: 39, y: 41, w, h };
+  return { x: 42, y: 37, w, h };
+}
+
+function nextRoomName(floorId) {
+  const taken = new Set(rooms.filter(r => r.floorId === floorId).map(r => String(r.name).toLowerCase()));
+  let n = rooms.filter(r => r.floorId === floorId).length + 1;
+  while (taken.has(`room ${n}`)) n += 1;
+  return `Room ${n}`;
 }
 
 let ffDrag = null;
 
 function ffPointerDown(event) {
   if (event.button !== 0) return;
-  const canvas = event.target.closest?.('.ff-canvas.editing');
+  const canvas = event.target.closest?.('.fmap.editing');
   if (!canvas || !isAdminRole()) return;
-  if (event.target.closest('.ff-del')) return;
-  const item = event.target.closest('.ff-item');
-  if (!item) return;
-  event.preventDefault();
+  if (event.target.closest('.fmap-pop')) return;
   const floor = floors.find(f => f.id === canvas.dataset.floor);
   if (!floor) return;
-  const kind = item.dataset.ffKind;
-  const id = item.dataset.ffId;
-  const target = kind === 'room' ? rooms.find(r => r.id === id) : (floor.corridors || []).find(c => c.id === id);
-  if (!target) return;
-  if (kind === 'room' && !target.box) target.box = { x: 2, y: 2, w: 22, h: 18 };
-  const box = kind === 'room' ? target.box : target;
   const rect = canvas.getBoundingClientRect();
-  ffDrag = {
-    item, box, kind, floor,
-    resize: !!event.target.closest('[data-ff-resize]'),
-    startX: event.clientX, startY: event.clientY,
-    orig: { ...box }, rect, moved: false,
-  };
-  item.classList.add('dragging');
-  try { item.setPointerCapture(event.pointerId); } catch (e) { /* ignore */ }
+  const at = e => ({ x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 });
+  const roomEl = event.target.closest('.fmap-room');
+  event.preventDefault();
+
+  if (!roomEl) {
+    // Empty floor: draw a new room.
+    const start = at(event);
+    ffDrag = { mode: 'draw', floor, rect, at, start, cur: start, moved: false };
+    state.layoutSelected = null;
+    state.layoutRenaming = false;
+    return;
+  }
+  const room = rooms.find(r => r.id === roomEl.dataset.ffId);
+  if (!room) return;
+  if (!room.box) room.box = freeSpotFor(floor);
+  const handle = event.target.closest('[data-ff-handle]')?.dataset.ffHandle || null;
+  ffDrag = { mode: handle ? 'resize' : 'move', handle, room, floor, rect, at, start: at(event), orig: { ...room.box }, el: roomEl, moved: false };
+  roomEl.classList.add('dragging');
+  try { roomEl.setPointerCapture(event.pointerId); } catch (e) { /* ignore */ }
 }
 
 function ffPointerMove(event) {
   if (!ffDrag) return;
-  const { rect, orig, box, item, kind } = ffDrag;
-  const dx = ((event.clientX - ffDrag.startX) / rect.width) * 100;
-  const dy = ((event.clientY - ffDrag.startY) / rect.height) * 100;
-  if (Math.abs(dx) + Math.abs(dy) > 0.3) ffDrag.moved = true;
-  const min = FF_MIN[kind];
-  if (ffDrag.resize) {
-    box.w = ffClamp(ffRound(orig.w + dx), min.w, 100 - orig.x);
-    box.h = ffClamp(ffRound(orig.h + dy), min.h, 100 - orig.y);
-  } else {
-    box.x = ffClamp(ffRound(orig.x + dx), 0, 100 - orig.w);
-    box.y = ffClamp(ffRound(orig.y + dy), 0, 100 - orig.h);
+  const p = ffDrag.at(event);
+  const dx = p.x - ffDrag.start.x;
+  const dy = p.y - ffDrag.start.y;
+  if (Math.abs(dx) + Math.abs(dy) > 0.4) ffDrag.moved = true;
+  if (!ffDrag.moved) return;
+
+  if (ffDrag.mode === 'draw') {
+    ffDrag.cur = p;
+    const box = drawBox(ffDrag);
+    const el = document.getElementById('fmapDraw');
+    if (el) {
+      el.hidden = false;
+      Object.assign(el.style, { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%` });
+      el.textContent = box.w >= FMAP_MIN && box.h >= FMAP_MIN ? 'New room' : '';
+    }
+    return;
   }
-  item.style.left = `${box.x}%`;
-  item.style.top = `${box.y}%`;
-  item.style.width = `${box.w}%`;
-  item.style.height = `${box.h}%`;
+
+  const { orig, room, handle } = ffDrag;
+  const box = room.box;
+  const t = wallTargets(room.floorId, room.id);
+  if (ffDrag.mode === 'move') {
+    let x = ffClamp(orig.x + dx, 0, 100 - orig.w);
+    let y = ffClamp(orig.y + dy, 0, 100 - orig.h);
+    // snap whichever edge is closest to a wall
+    const sx1 = snapTo(x, t.xs); const sx2 = snapTo(x + orig.w, t.xs) - orig.w;
+    x = Math.abs(sx1 - x) <= Math.abs(sx2 - x) ? sx1 : sx2;
+    const sy1 = snapTo(y, t.ys); const sy2 = snapTo(y + orig.h, t.ys) - orig.h;
+    y = Math.abs(sy1 - y) <= Math.abs(sy2 - y) ? sy1 : sy2;
+    box.x = ffClamp(x, 0, 100 - orig.w);
+    box.y = ffClamp(y, 0, 100 - orig.h);
+  } else {
+    let { x, y, w, h } = orig;
+    if (handle.includes('e')) w = ffClamp(snapTo(orig.x + orig.w + dx, t.xs) - x, FMAP_MIN, 100 - x);
+    if (handle.includes('s')) h = ffClamp(snapTo(orig.y + orig.h + dy, t.ys) - y, FMAP_MIN, 100 - y);
+    if (handle.includes('w')) { const nx = ffClamp(snapTo(orig.x + dx, t.xs), 0, orig.x + orig.w - FMAP_MIN); w = orig.x + orig.w - nx; x = nx; }
+    if (handle.includes('n')) { const ny = ffClamp(snapTo(orig.y + dy, t.ys), 0, orig.y + orig.h - FMAP_MIN); h = orig.y + orig.h - ny; y = ny; }
+    Object.assign(box, { x, y, w, h });
+  }
+  Object.assign(ffDrag.el.style, { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%` });
+  const pop = document.querySelector('.fmap-pop');
+  if (pop) pop.hidden = true;
+}
+
+function drawBox(d) {
+  const t = wallTargets(d.floor.id, null);
+  const x1 = ffClamp(snapTo(Math.min(d.start.x, d.cur.x), t.xs), 0, 100);
+  const x2 = ffClamp(snapTo(Math.max(d.start.x, d.cur.x), t.xs), 0, 100);
+  const y1 = ffClamp(snapTo(Math.min(d.start.y, d.cur.y), t.ys), 0, 100);
+  const y2 = ffClamp(snapTo(Math.max(d.start.y, d.cur.y), t.ys), 0, 100);
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
 function ffPointerUp() {
   if (!ffDrag) return;
-  const { item, moved } = ffDrag;
-  item.classList.remove('dragging');
+  const d = ffDrag;
   ffDrag = null;
-  if (moved) saveState();
+  if (d.mode === 'draw') {
+    if (!d.moved) { render(); return; } // click on empty floor = deselect
+    const box = drawBox(d);
+    if (box.w < FMAP_MIN || box.h < FMAP_MIN) { render(); return; }
+    const name = nextRoomName(d.floor.id);
+    const id = uid('room');
+    rooms.push({ id, floorId: d.floor.id, name, side: 'left', pos: 9999, devices: [], notes: [], box });
+    normalizeRoomPositions(d.floor.id, 'left');
+    state.layoutSelected = id;
+    state.layoutRenaming = true; // type the real name straight away
+    render();
+    saveState();
+    return;
+  }
+  d.el.classList.remove('dragging');
+  if (!d.moved) {
+    state.layoutSelected = d.room.id;
+    state.layoutRenaming = false;
+    render();
+    return;
+  }
+  state.layoutSelected = d.room.id;
+  render();
+  saveState();
+}
+
+function fmapRenameSave() {
+  const room = rooms.find(r => r.id === state.layoutSelected);
+  const input = document.getElementById('fmapName');
+  if (!room || !input) return;
+  const name = normalizeText(input.value);
+  const nameError = validateName(name, 'Room name');
+  const dup = rooms.some(r => r.id !== room.id && r.floorId === room.floorId && r.name?.toLowerCase() === name.toLowerCase());
+  if (nameError || dup) { showToast(nameError || 'A room with that name already exists on this floor.', 'error'); input.focus(); return; }
+  room.name = name;
+  state.layoutRenaming = false;
+  render();
+  saveState();
 }
 
 function floorMgrChanged(message) {
@@ -1549,7 +1643,7 @@ function handleClick(event) {
   if (actionEl && ['INPUT', 'SELECT', 'TEXTAREA'].includes(actionEl.tagName)) return;
 
   if (action === 'close-panel' && actionEl.id === 'panelBg' && target !== actionEl) return;
-  if (action === 'open-room' && actionEl.closest('.ff-canvas.editing')) return;
+  if (action === 'open-room' && actionEl.closest('.fmap.editing')) return;
 
   if (action === 'do-login') {
     const username = document.getElementById('loginUser')?.value || '';
@@ -1701,29 +1795,16 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
-  'ff-edit': () => { state.layoutEditing = state.currentFloorId; render(); },
-  'ff-done': () => { state.layoutEditing = null; render(); showToast('Layout saved.'); },
-  'ff-snap': () => {},
-  'ff-add-corridor': () => {
-    const floor = floors.find(f => f.id === state.currentFloorId);
-    if (!floor || !isAdminRole()) return;
-    if (!Array.isArray(floor.corridors)) floor.corridors = [];
-    floor.corridors.push({ id: uid('cor'), ...freeSpotFor(floor, 30, 6) });
-    render();
-    saveState();
-  },
-  'ff-del-corridor': target => {
-    const floor = floors.find(f => f.id === state.currentFloorId);
-    if (!floor || !isAdminRole()) return;
-    floor.corridors = (floor.corridors || []).filter(c => c.id !== target.dataset.ffId);
-    render();
-    saveState();
-  },
+  'ff-edit': () => { state.layoutEditing = state.currentFloorId; state.layoutSelected = null; state.layoutRenaming = false; render(); },
+  'ff-done': () => { state.layoutEditing = null; state.layoutSelected = null; state.layoutRenaming = false; render(); showToast('Layout saved.'); },
+  'fmap-rename': () => { state.layoutRenaming = true; render(); },
+  'fmap-rename-save': () => fmapRenameSave(),
+  'fmap-open': target => { state.layoutEditing = null; state.layoutSelected = null; openRoom(target.dataset.room); },
   'ff-aspect': target => {
     const floor = floors.find(f => f.id === state.currentFloorId);
     if (!floor || !isAdminRole()) return;
-    const next = (Number(floor.aspect) || 0.62) + Number(target.dataset.dir) * 0.1;
-    floor.aspect = Number(Math.min(2, Math.max(0.3, next)).toFixed(2));
+    const next = (Number(floor.aspect) || 0.55) + Number(target.dataset.dir) * 0.08;
+    floor.aspect = Number(Math.min(1.6, Math.max(0.3, next)).toFixed(2));
     render();
     saveState();
   },
@@ -2072,11 +2153,6 @@ export function initApp() {
       return;
     }
 
-    if (target.dataset.action === 'ff-snap') {
-      state.layoutSnap = target.checked;
-      return;
-    }
-
     if (target.dataset.action === 'toggle-popups') {
       try { localStorage.setItem(POPUPS_KEY, target.checked ? 'on' : 'off'); } catch (e) { /* ignore */ }
       showToast(target.checked ? 'Popups on.' : 'Popups off.', 'info');
@@ -2122,6 +2198,11 @@ export function initApp() {
         document.querySelector('[data-action="do-setup"]')?.click();
         return;
       }
+    }
+    if (event.key === 'Enter' && target?.dataset?.action === 'fmap-rename-save') { fmapRenameSave(); return; }
+    if (state.layoutEditing && state.layoutSelected && !['INPUT', 'TEXTAREA'].includes(target?.tagName)) {
+      if (event.key === 'Escape' && !document.querySelector('.modal-bg.open')) { state.layoutSelected = null; state.layoutRenaming = false; render(); return; }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !document.querySelector('.modal-bg.open')) { event.preventDefault(); deleteRoom(state.layoutSelected); return; }
     }
     if (event.key === 'Enter' && target?.dataset?.action === 'fm-add-save') { fmAddSave(target.dataset.side); return; }
     if (event.key === 'Enter' && target?.dataset?.action === 'fm-rename-save') { fmRenameSave(target.dataset.room); return; }

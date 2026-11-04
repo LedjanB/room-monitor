@@ -645,38 +645,67 @@ export function renderCorridor() {
 // carries floor.corridors [{id,x,y,w,h}], all in % of the canvas. The
 // canvas keeps a fixed shape (floor.aspect = height / width) so a layout
 // looks the same on every screen. Editing is admin-only (state.layoutEditing).
-export const FREE_DEFAULT_ASPECT = 0.62;
+export const FREE_DEFAULT_ASPECT = 0.55;
 
 export function renderFreeFloor(floor, floorRooms) {
   const editing = isAdmin() && state.layoutEditing === floor.id;
   const aspect = Number(floor.aspect) || FREE_DEFAULT_ASPECT;
   const pct = v => `${Number(v) || 0}%`;
-  const corridors = (floor.corridors || []).map(c => `
-    <div class="ff-item ff-corridor" data-ff-kind="corridor" data-ff-id="${c.id}" style="left:${pct(c.x)};top:${pct(c.y)};width:${pct(c.w)};height:${pct(c.h)};">
-      ${editing ? `<button type="button" class="ff-del" data-action="ff-del-corridor" data-ff-id="${c.id}" title="Delete corridor piece" aria-label="Delete corridor piece">×</button><span class="ff-resize" data-ff-resize="1" aria-hidden="true"></span>` : ''}
-    </div>`).join('');
+  const selected = editing ? floorRooms.find(r => r.id === state.layoutSelected) : null;
+
   const roomBoxes = floorRooms.map(room => {
-    const b = room.box || { x: 2, y: 2, w: 22, h: 18 };
-    return `<div class="ff-item ff-room" data-ff-kind="room" data-ff-id="${room.id}" style="left:${pct(b.x)};top:${pct(b.y)};width:${pct(b.w)};height:${pct(b.h)};">
-      ${roomCardHTML(room)}
-      ${editing ? '<span class="ff-resize" data-ff-resize="1" aria-hidden="true"></span>' : ''}
-    </div>`;
+    const b = room.box || { x: 2, y: 2, w: 20, h: 30 };
+    const style = `left:${pct(b.x)};top:${pct(b.y)};width:${pct(b.w)};height:${pct(b.h)};`;
+    const c = getRoomStatusCounts(room);
+    const total = (c.free || 0) + (c.inuse || 0) + (c.not_available || 0);
+    // Colour = the room's state at a glance: any in use > any not available > free.
+    const tone = c.inuse ? 'inuse' : c.not_available ? 'na' : total ? 'free' : 'empty';
+    const line = c.inuse ? `${c.inuse} in use` : c.not_available ? `${c.not_available} not available` : total ? `${c.free} free` : 'No devices';
+    const sub = (c.inuse && c.free) ? `<span class="fm-room-sub2">${c.free} free</span>` : '';
+    const inner = `<span class="fm-room-name">${esc(room.name)}</span><span class="fm-room-sub">${line}</span>${sub}`;
+    if (!editing) {
+      return `<button type="button" class="fmap-room ${tone}" style="${style}" data-action="open-room" data-room="${room.id}" title="${esc(room.name)}: ${line}">${inner}</button>`;
+    }
+    const isSel = selected && selected.id === room.id;
+    const handles = isSel ? ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(h => `<span class="fmap-h ${h}" data-ff-handle="${h}" aria-hidden="true"></span>`).join('') : '';
+    return `<div class="fmap-room ${tone}${isSel ? ' is-sel' : ''}" style="${style}" data-ff-id="${room.id}" role="button" tabindex="0" aria-label="${esc(room.name)}${isSel ? ' (selected)' : ''}">${inner}${handles}</div>`;
   }).join('');
-  const toolbar = editing ? `<div class="ff-toolbar" role="toolbar" aria-label="Layout editor">
-      <span class="ff-tip">Drag to move. Drag the corner to resize.</span>
-      <button class="btn-sm ghost" data-action="ff-add-corridor">+ Corridor piece</button>
-      <button class="btn-sm ghost" data-action="add-room">+ Room</button>
-      <button class="btn-sm ghost" data-action="ff-aspect" data-dir="-1" title="Make the floor shorter">Shorter</button>
-      <button class="btn-sm ghost" data-action="ff-aspect" data-dir="1" title="Make the floor taller">Taller</button>
-      <label class="ff-snap"><input type="checkbox" data-action="ff-snap" ${state.layoutSnap !== false ? 'checked' : ''}/> Snap to grid</label>
-      <button class="btn-sm" data-action="ff-done">Done</button>
-    </div>` : (isAdmin() ? `<div class="ff-toolbar quiet"><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
-  return `${toolbar}
-    <div class="ff-scroll">
-      <div class="ff-canvas${editing ? ' editing' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
-        <div class="ff-inner">${corridors}${roomBoxes}</div>
-      </div>
+
+  let popover = '';
+  if (selected && selected.box) {
+    const b = selected.box;
+    const below = b.y + b.h < 82;
+    const pos = below ? `top:calc(${pct(b.y + b.h)} + 8px);` : `top:calc(${pct(b.y)} - 46px);`;
+    const left = `left:${pct(Math.min(b.x, 70))};`;
+    popover = state.layoutRenaming
+      ? `<div class="fmap-pop" style="${pos}${left}"><input class="field-input fmap-name" id="fmapName" value="${esc(selected.name)}" data-action="fmap-rename-save" aria-label="Room name" /><button class="btn-mini primary" data-action="fmap-rename-save">Save</button></div>`
+      : `<div class="fmap-pop" style="${pos}${left}">
+          <button class="btn-mini" data-action="fmap-rename">Rename</button>
+          <button class="btn-mini" data-action="fmap-open" data-room="${selected.id}">Open</button>
+          <button class="btn-mini danger" data-action="fm-delete" data-room="${selected.id}">Delete</button>
+        </div>`;
+  }
+
+  const toolbar = editing
+    ? `<div class="fmap-bar" role="toolbar" aria-label="Layout editor">
+        <span class="fmap-tip">Drag a room to move it. Drag on empty floor to draw a new room.</span>
+        <button class="btn-sm ghost" data-action="ff-aspect" data-dir="-1">Shorter</button>
+        <button class="btn-sm ghost" data-action="ff-aspect" data-dir="1">Taller</button>
+        <button class="btn-sm" data-action="ff-done">Done</button>
+      </div>`
+    : (isAdmin() ? `<div class="fmap-bar quiet"><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
+
+  const legend = editing ? '' : `<div class="fmap-legend">
+      <span><i class="free"></i>Free</span><span><i class="inuse"></i>Something in use</span><span><i class="na"></i>Not available</span>
     </div>`;
+
+  return `${toolbar}
+    <div class="fmap-scroll">
+      <div class="fmap${editing ? ' editing' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
+        <div class="fmap-inner" data-ff-floor="1">${roomBoxes}${popover}<div class="fmap-draw" id="fmapDraw" hidden></div></div>
+      </div>
+    </div>
+    ${legend}`;
 }
 
 export function renderRoom(room) {

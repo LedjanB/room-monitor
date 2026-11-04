@@ -24,7 +24,8 @@ export const state = {
   editingRoomId: null,
   editingFloorId: null,
   layoutEditing: null, // floor id whose custom layout is being edited (admin, this tab only)
-  layoutSnap: true,
+  layoutSelected: null, // room id selected in the layout editor
+  layoutRenaming: false,
   uidCounter: 1000,
   searchFilters: {
     floorId: 'all',
