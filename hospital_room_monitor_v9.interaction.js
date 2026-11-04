@@ -961,6 +961,9 @@ function convertFloorToFree(floor) {
   };
   top.forEach((room, i) => place(room, i, 0));
   bottom.forEach((room, i) => place(room, i, 100 - roomH));
+  if (!Array.isArray(floor.corridors) || !floor.corridors.length) {
+    floor.corridors = [{ id: uid('cor'), x: 0, y: roomH, w: 100, h: 100 - roomH * 2 }];
+  }
   floor.aspect = Number(Math.min(0.9, Math.max(0.42, 1.6 / cols + 0.3)).toFixed(2));
   floor.layout = 'free';
 }
@@ -1042,13 +1045,14 @@ function ffPointerDown(event) {
   const roomEl = event.target.closest('.fmap-room');
   event.preventDefault();
 
-  if (state.layoutCorridor) {
-    // Resize-corridor mode: only the blue bars do anything.
-    const bar = event.target.closest('[data-ff-cbar]');
-    const barRoom = bar && rooms.find(r => r.id === bar.dataset.room);
-    if (!barRoom) return;
-    ffDrag = { mode: 'wall', wall: linkedWall(barRoom, bar.dataset.side), bar, floor, rect, at, start: at(event), moved: false };
-    bar.classList.add('dragging');
+  const corEl = !roomEl && event.target.closest('.fmap-corr');
+  if (corEl) {
+    const cor = (floor.corridors || []).find(c => c.id === corEl.dataset.ffCid);
+    if (!cor) return;
+    const handle = event.target.closest('[data-ff-handle]')?.dataset.ffHandle || null;
+    ffDrag = { mode: handle ? 'cresize' : 'cmove', handle, cor, floor, rect, at, start: at(event), orig: { ...cor }, el: corEl, moved: false };
+    if (handle) ffDrag.walls = handle.split('').map(side => corridorWall(cor, side));
+    corEl.classList.add('dragging');
     return;
   }
 
@@ -1078,17 +1082,40 @@ function ffPointerMove(event) {
   if (Math.abs(dx) + Math.abs(dy) > 0.4) ffDrag.moved = true;
   if (!ffDrag.moved) return;
 
-  if (ffDrag.mode === 'wall') {
-    const { wall, bar } = ffDrag;
-    const linked = new Set([...wall.same, ...wall.facing].map(x => x.r.id));
-    const free = rooms.filter(r => r.floorId === ffDrag.floor.id && r.box && !linked.has(r.id));
-    const horizontal = wall.side === 'n' || wall.side === 's';
-    const targets = horizontal ? [0, 100, ...free.flatMap(r => [r.box.y, r.box.y + r.box.h])] : [0, 100, ...free.flatMap(r => [r.box.x, r.box.x + r.box.w])];
-    applyWall(wall, snapTo(wall.line + (horizontal ? dy : dx), targets));
-    paintBoxes(wall.same.concat(wall.facing).map(x => x.r));
-    const moved = wall.same[0].r.box;
-    const now = wall.side === 'n' ? moved.y : wall.side === 's' ? moved.y + moved.h : wall.side === 'w' ? moved.x : moved.x + moved.w;
-    bar.style[horizontal ? 'top' : 'left'] = `${now}%`;
+  if (ffDrag.mode === 'cmove') {
+    const { orig, cor } = ffDrag;
+    cor.x = ffClamp(Math.round(orig.x + dx), 0, 100 - orig.w);
+    cor.y = ffClamp(Math.round(orig.y + dy), 0, 100 - orig.h);
+    Object.assign(ffDrag.el.style, { left: `${cor.x}%`, top: `${cor.y}%` });
+    const pop = document.querySelector('.fmap-pop'); if (pop) pop.hidden = true;
+    return;
+  }
+
+  if (ffDrag.mode === 'cresize') {
+    const { orig, cor } = ffDrag;
+    const CMIN = 2;
+    ffDrag.walls.forEach(w => {
+      const horizontal = w.side === 'n' || w.side === 's';
+      let target = Math.round(w.line + (horizontal ? dy : dx));
+      // keep the corridor itself at least CMIN
+      if (w.side === 's') target = ffClamp(target, orig.y + CMIN, 100);
+      if (w.side === 'n') target = ffClamp(target, 0, orig.y + orig.h - CMIN);
+      if (w.side === 'e') target = ffClamp(target, orig.x + CMIN, 100);
+      if (w.side === 'w') target = ffClamp(target, 0, orig.x + orig.w - CMIN);
+      if (w.rooms) {
+        applyWall(w.rooms, target);
+        const b = w.rooms.same[0].r.box;
+        const opp = { n: 's', s: 'n', e: 'w', w: 'e' }[w.side];
+        target = opp === 'n' ? b.y : opp === 's' ? b.y + b.h : opp === 'w' ? b.x : b.x + b.w; // where the rooms actually ended up
+        paintBoxes(w.rooms.same.concat(w.rooms.facing).map(x => x.r));
+      }
+      if (w.side === 's') cor.h = target - cor.y;
+      if (w.side === 'e') cor.w = target - cor.x;
+      if (w.side === 'n') { cor.h = orig.y + orig.h - target; cor.y = target; }
+      if (w.side === 'w') { cor.w = orig.x + orig.w - target; cor.x = target; }
+    });
+    Object.assign(ffDrag.el.style, { left: `${cor.x}%`, top: `${cor.y}%`, width: `${cor.w}%`, height: `${cor.h}%` });
+    const pop = document.querySelector('.fmap-pop'); if (pop) pop.hidden = true;
     return;
   }
 
@@ -1201,6 +1228,20 @@ function applyWall(wall, target) {
   });
 }
 
+/** The rooms pushed by one side of a corridor: the row of rooms whose facing
+ *  wall sits on that side (they move together, like dragging their wall). */
+function corridorWall(cor, side) {
+  const opposite = { n: 's', s: 'n', e: 'w', w: 'e' }[side];
+  const line = side === 'n' ? cor.y : side === 's' ? cor.y + cor.h : side === 'w' ? cor.x : cor.x + cor.w;
+  const horizontal = side === 'n' || side === 's';
+  const edgeOf = (b, sd) => sd === 'n' ? b.y : sd === 's' ? b.y + b.h : sd === 'w' ? b.x : b.x + b.w;
+  const [c1, c2] = horizontal ? [cor.x, cor.x + cor.w] : [cor.y, cor.y + cor.h];
+  const touching = rooms.find(r => r.floorId === state.currentFloorId && r.box
+    && Math.abs(edgeOf(r.box, opposite) - line) <= EDGE_EPS
+    && Math.min(c2, horizontal ? r.box.x + r.box.w : r.box.y + r.box.h) - Math.max(c1, horizontal ? r.box.x : r.box.y) > EDGE_EPS);
+  return { side, line, rooms: touching ? linkedWall(touching, opposite) : null };
+}
+
 function paintBoxes(list) {
   list.forEach(r => {
     const el = document.querySelector(`.fmap-room[data-ff-id="${r.id}"]`);
@@ -1221,10 +1262,12 @@ function ffPointerUp() {
   if (!ffDrag) return;
   const d = ffDrag;
   ffDrag = null;
-  if (d.mode === 'wall') {
-    d.bar.classList.remove('dragging');
-    if (d.moved) saveState();
+  if (d.mode === 'cmove' || d.mode === 'cresize') {
+    d.el.classList.remove('dragging');
+    state.layoutSelected = `cor:${d.cor.id}`;
+    state.layoutRenaming = false;
     render();
+    if (d.moved) saveState();
     return;
   }
   if (d.mode === 'draw') {
@@ -1939,7 +1982,35 @@ const actionHandlers = {
   'ff-done': () => { state.layoutEditing = null; state.layoutSelected = null; state.layoutRenaming = false; state.layoutCorridor = false; render(); showToast('Layout saved.'); },
   'corr-resize': () => { state.corridorResizing = state.currentFloorId; render(); },
   'corr-done': () => { state.corridorResizing = null; render(); showToast('Corridor size saved.'); },
-  'ff-corridor': () => { state.layoutEditing = state.currentFloorId; state.layoutCorridor = true; state.layoutSelected = null; state.layoutRenaming = false; render(); },
+  'ff-corridor': () => {
+    const floor = floors.find(f => f.id === state.currentFloorId);
+    state.layoutEditing = state.currentFloorId;
+    state.layoutCorridor = false;
+    state.layoutRenaming = false;
+    const first = (floor?.corridors || [])[0];
+    state.layoutSelected = first ? `cor:${first.id}` : null;
+    render();
+    if (!first) showToast('No corridor yet. Click + Corridor to add one.', 'info');
+  },
+  'ff-add-corridor': () => {
+    const floor = floors.find(f => f.id === state.currentFloorId);
+    if (!floor || !isAdminRole()) return;
+    if (!Array.isArray(floor.corridors)) floor.corridors = [];
+    const spot = freeSpotFor(floor, 30, 12);
+    const cor = { id: uid('cor'), ...spot };
+    floor.corridors.push(cor);
+    state.layoutSelected = `cor:${cor.id}`;
+    render();
+    saveState();
+  },
+  'ff-del-corridor': target => {
+    const floor = floors.find(f => f.id === state.currentFloorId);
+    if (!floor || !isAdminRole()) return;
+    floor.corridors = (floor.corridors || []).filter(c => c.id !== target.dataset.ffId);
+    state.layoutSelected = null;
+    render();
+    saveState();
+  },
   'fmap-rename': () => { state.layoutRenaming = true; render(); },
   'fmap-rename-save': () => fmapRenameSave(),
   'fmap-open': target => { state.layoutEditing = null; state.layoutSelected = null; openRoom(target.dataset.room); },
@@ -2345,7 +2416,15 @@ export function initApp() {
     if (event.key === 'Enter' && target?.dataset?.action === 'fmap-rename-save') { fmapRenameSave(); return; }
     if (state.layoutEditing && state.layoutSelected && !['INPUT', 'TEXTAREA'].includes(target?.tagName)) {
       if (event.key === 'Escape' && !document.querySelector('.modal-bg.open')) { state.layoutSelected = null; state.layoutRenaming = false; render(); return; }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && !document.querySelector('.modal-bg.open')) { event.preventDefault(); deleteRoom(state.layoutSelected); return; }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !document.querySelector('.modal-bg.open')) {
+        event.preventDefault();
+        if (String(state.layoutSelected).startsWith('cor:')) {
+          document.querySelector(`[data-action="ff-del-corridor"]`)?.click();
+        } else {
+          deleteRoom(state.layoutSelected);
+        }
+        return;
+      }
     }
     if (event.key === 'Enter' && target?.dataset?.action === 'fm-add-save') { fmAddSave(target.dataset.side); return; }
     if (event.key === 'Enter' && target?.dataset?.action === 'fm-rename-save') { fmRenameSave(target.dataset.room); return; }

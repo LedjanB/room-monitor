@@ -440,7 +440,10 @@ would need rethinking if this ever handled anything actually sensitive or advers
     side of a room also moves that side of every room lined up with it in an unbroken row,
     and the facing side of rooms across that wall. That's how the corridor is widened. Switching to Floor plan runs `convertFloorToFree()` (left-side
     rooms along the top, right-side along the bottom); switching back keeps the boxes.
-22. **Resize corridor.** A button next to Edit layout (and inside it) turns on
-    `state.layoutCorridor`: `corridorWalls()` (render.js) finds every row of room walls
-    that faces open floor and draws a blue bar on it; dragging a bar moves that row via
-    `linkedWall()`/`applyWall()`. Rooms can't be selected or opened in this mode.
+22. **Corridors.** Straight view: "Resize corridor" shows a handle that sets
+    `floor.corridorWidth` (px). Floor plan view: corridors are real shapes,
+    `floor.corridors [{id,x,y,w,h}]`, drawn under the rooms. In Edit layout (or via the
+    "Resize corridor" button, which opens the editor with the corridor selected) they're
+    selected, moved and resized with the same 8 handles as rooms; moving a corridor edge
+    pushes the row of rooms on that side (`corridorWall()` → `linkedWall()`/`applyWall()`).
+    "+ Corridor" adds another piece (for turns/branches), Delete removes one.
