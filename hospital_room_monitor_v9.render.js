@@ -26,6 +26,7 @@ import {
   typeDefaults,
   devSummary,
   deviceCount,
+  isCountedDevice,
   roomHasInUse,
   bedSVG,
   broadcastActivity,
@@ -551,7 +552,7 @@ export function renderCorridor() {
         </div>
         <div class="rdevs">${devSummary(room)}</div>
         ${statusSummary}
-        <div class="rstatus-dots">${room.devices.filter(device => device.type !== 'bed').map(device => {
+        <div class="rstatus-dots">${room.devices.filter(isCountedDevice).map(device => {
           const meta = getStatusMeta(device.id);
           // meta.detail is "In Use by <name>" / "Reason: …" — the question a
           // status board gets asked most is *who*, and answering it in the
@@ -624,7 +625,7 @@ export function renderCorridor() {
 export function renderRoom(room) {
   const roomTotals = {};
   room.devices.forEach(device => {
-    if (device.type === 'bed') return; // beds have their own card
+    if (!isCountedDevice(device)) return; // beds and TVs aren't counted
     roomTotals[device.type] = (roomTotals[device.type] || 0) + 1;
   });
 

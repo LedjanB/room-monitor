@@ -207,8 +207,16 @@ export function getStatusMeta(devId) {
   return { key: STATUS.FREE, className: 'avail', label: 'Free to Use', shortLabel: 'Free', detail: '' };
 }
 
+/** What counts as a device in totals and free/in-use counts. Beds are
+ *  furniture and TVs are room fixtures: both still show on the canvas
+ *  (TVs keep their status), they just aren't counted. */
+const NOT_COUNTED = new Set(['bed', 'tv']);
+export function isCountedDevice(device) {
+  return !!device && !NOT_COUNTED.has(device.type);
+}
+
 export function getRoomStatusCounts(room) {
-  return room.devices.filter(d => d.type !== 'bed').reduce((acc, device) => {
+  return room.devices.filter(isCountedDevice).reduce((acc, device) => {
     const key = getStatusMeta(device.id).key;
     acc[key] = (acc[key] || 0) + 1;
     return acc;
@@ -520,15 +528,14 @@ export const typeDefaults = {
   bed: { w: 20, h: 52 },
 };
 
-/** Beds are furniture, not devices: they never count toward device totals. */
 export function deviceCount(room) {
-  return (room.devices || []).filter(d => d.type !== 'bed').length;
+  return (room.devices || []).filter(isCountedDevice).length;
 }
 
 export function devSummary(room) {
   const counts = {};
   room.devices.forEach(d => {
-    if (d.type === 'bed') return;
+    if (!isCountedDevice(d)) return;
     counts[d.type] = (counts[d.type] || 0) + 1;
   });
   return Object.entries(counts)
@@ -537,7 +544,7 @@ export function devSummary(room) {
 }
 
 export function roomHasInUse(room) {
-  return room.devices.some(d => getStatusMeta(d.id).key === STATUS.IN_USE || getStatusMeta(d.id).key === STATUS.NOT_AVAILABLE);
+  return room.devices.filter(isCountedDevice).some(d => getStatusMeta(d.id).key === STATUS.IN_USE || getStatusMeta(d.id).key === STATUS.NOT_AVAILABLE);
 }
 
 export function roomHasSign(room) {
