@@ -1558,11 +1558,11 @@ body{
   --red:#d63c31;--red-bg:#fdeceb;--red-border:#f2b6b1;
   --orange:#e07d10;--orange-bg:#fff2e2;--orange-border:#f6cc96;
   --accent:#2f5bd3;--accent-bg:#e8eefc;
-  --sign:#1c2c55;      /* signage navy */
+  --sign:#2c4a8c;      /* signage blue */
   --sign-ink:#ffffff;
   --wall:#ffffff;
 }
-body{font-family:'Atkinson Hyperlegible',Inter,ui-sans-serif,system-ui,'Segoe UI',Arial,sans-serif;background:var(--bg);font-weight:400;}
+body{font-family:'Atkinson Hyperlegible Next','Atkinson Hyperlegible',Inter,ui-sans-serif,system-ui,'Segoe UI',Arial,sans-serif;background:var(--bg);font-weight:500;}
 :root[data-theme="dark"] body,body{background:var(--bg);}
 button,input,select,textarea{font-family:inherit;}
 
@@ -1599,7 +1599,7 @@ button,input,select,textarea{font-family:inherit;}
 /* Room cards = door signs: navy plate with the room name, status bar under */
 .room-btn{background:var(--panel-bg);border:1.5px solid var(--border);border-radius:12px;box-shadow:none;padding:0;overflow:hidden;color:var(--text);}
 .room-btn:hover{background:var(--panel-bg);border-color:var(--sign);box-shadow:0 6px 18px rgba(21,32,57,.10);transform:none;}
-.room-btn.has-inuse{border-left-width:1.5px;}
+.room-btn.has-inuse{border-left:6px solid var(--red);}
 .room-btn .room-btn-top{background:var(--sign);padding:10px 14px;margin:0;}
 .room-btn .rname{color:var(--sign-ink);font-size:20px;font-weight:700;letter-spacing:0;}
 .room-btn .rdevs,.room-btn .rstatus-summary,.room-btn .rstatus-dots{margin-left:14px;margin-right:14px;}
@@ -1662,3 +1662,15 @@ button,input,select,textarea{font-family:inherit;}
 :root[data-theme="dark"] .rstatus-pill.inuse{background:var(--red-bg);}
 :root[data-theme="dark"] .rstatus-pill.notavail{background:var(--orange-bg);}
 :root[data-theme="dark"] .dev-quick-toggle{border-color:var(--bg2);}
+
+/* Readability: nothing under 12px, small text a step heavier */
+.dev-list-type,.dev-status-text,.emp-label,.note-meta,.status-since,.sr-since,.role-label,.btn-mini,.sr-chip,.sr-clear,.hdr-pill,.hdr-theme-btn{font-size:12px;}
+.rstatus-pill{font-size:12.5px;font-weight:700;}
+.dev-list-item,.srow,.pkv{font-size:14px;}
+.dev-list-type,.dev-status-text{font-weight:600;color:var(--text3);}
+.rdevs{font-size:13.5px;font-weight:500;color:var(--text2);}
+.room-btn .rname{font-size:21px;font-weight:700;}
+.dev-name-tag{font-size:11px;font-weight:700;}
+.room-title,.corridor-label{font-weight:800;}
+:root[data-theme="dark"] .room-btn .room-btn-top{background:#2c4a8c;}
+:root[data-theme="dark"] .cap{background:#2c4a8c;}
