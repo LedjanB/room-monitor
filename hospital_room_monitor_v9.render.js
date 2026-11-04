@@ -647,11 +647,57 @@ export function renderCorridor() {
 // looks the same on every screen. Editing is admin-only (state.layoutEditing).
 export const FREE_DEFAULT_ASPECT = 0.55;
 
+/** Walls that face open floor (the corridor), grouped by row: dragging one
+ *  of these moves the whole row (see linkedWall() in interaction.js). */
+export function corridorWalls(floorRooms) {
+  const boxed = floorRooms.filter(r => r.box);
+  const covered = (x, y) => x <= 0 || x >= 100 || y <= 0 || y >= 100
+    || boxed.some(r => x > r.box.x && x < r.box.x + r.box.w && y > r.box.y && y < r.box.y + r.box.h);
+  const EPS = 0.35;
+  const edge = (b, side) => side === 'n' ? b.y : side === 's' ? b.y + b.h : side === 'w' ? b.x : b.x + b.w;
+  const span = (b, side) => (side === 'n' || side === 's') ? [b.x, b.x + b.w] : [b.y, b.y + b.h];
+  const groups = [];
+  const seen = new Set();
+  boxed.forEach(room => {
+    ['n', 's', 'e', 'w'].forEach(side => {
+      if (seen.has(`${room.id}:${side}`)) return;
+      const b = room.box;
+      const line = edge(b, side);
+      const [a1, a2] = span(b, side);
+      const out = side === 'n' || side === 'w' ? -1.2 : 1.2;
+      let open = 0;
+      for (let i = 1; i <= 9; i += 1) {
+        const t = a1 + ((a2 - a1) * i) / 10;
+        const [px, py] = (side === 'n' || side === 's') ? [t, line + out] : [line + out, t];
+        if (!covered(px, py)) open += 1;
+      }
+      if (open < 5) return; // this wall doesn't face the corridor
+      // grow the row: same side, same line, touching
+      const row = [room];
+      let grew = true;
+      while (grew) {
+        grew = false;
+        boxed.forEach(r => {
+          if (row.includes(r) || Math.abs(edge(r.box, side) - line) > EPS) return;
+          const [c1, c2] = span(r.box, side);
+          if (row.some(m => { const [d1, d2] = span(m.box, side); return c1 <= d2 + EPS && c2 >= d1 - EPS; })) { row.push(r); grew = true; }
+        });
+      }
+      row.forEach(r => seen.add(`${r.id}:${side}`));
+      const from = Math.min(...row.map(r => span(r.box, side)[0]));
+      const to = Math.max(...row.map(r => span(r.box, side)[1]));
+      groups.push({ side, line, from, to, roomId: room.id });
+    });
+  });
+  return groups;
+}
+
 export function renderFreeFloor(floor, floorRooms) {
   const editing = isAdmin() && state.layoutEditing === floor.id;
+  const corridorMode = editing && state.layoutCorridor;
   const aspect = Number(floor.aspect) || FREE_DEFAULT_ASPECT;
   const pct = v => `${Number(v) || 0}%`;
-  const selected = editing ? floorRooms.find(r => r.id === state.layoutSelected) : null;
+  const selected = editing && !state.layoutCorridor ? floorRooms.find(r => r.id === state.layoutSelected) : null;
 
   const roomBoxes = floorRooms.map(room => {
     const b = room.box || { x: 2, y: 2, w: 20, h: 30 };
@@ -686,14 +732,28 @@ export function renderFreeFloor(floor, floorRooms) {
         </div>`;
   }
 
-  const toolbar = editing
+  const bars = corridorMode ? corridorWalls(floorRooms).map(g => {
+    const horizontal = g.side === 'n' || g.side === 's';
+    const style = horizontal
+      ? `left:${pct(g.from)};width:${pct(g.to - g.from)};top:${pct(g.line)};`
+      : `top:${pct(g.from)};height:${pct(g.to - g.from)};left:${pct(g.line)};`;
+    return `<div class="fmap-cbar ${horizontal ? 'h' : 'v'}" style="${style}" data-ff-cbar="1" data-room="${g.roomId}" data-side="${g.side}" title="Drag to resize the corridor"><span></span></div>`;
+  }).join('') : '';
+
+  const toolbar = corridorMode
+    ? `<div class="fmap-bar" role="toolbar" aria-label="Resize corridor">
+        <span class="fmap-tip"><b>Resize corridor:</b> drag a blue bar to make the corridor wider or narrower.</span>
+        <button class="btn-sm" data-action="ff-done">Done</button>
+      </div>`
+    : editing
     ? `<div class="fmap-bar" role="toolbar" aria-label="Layout editor">
         <span class="fmap-tip">Drag a room to move it. Drag a wall to resize (rooms in a row move together). Drag on empty floor to draw a new room.</span>
+        <button class="btn-sm ghost" data-action="ff-corridor">Resize corridor</button>
         <button class="btn-sm ghost" data-action="ff-aspect" data-dir="-1">Shorter</button>
         <button class="btn-sm ghost" data-action="ff-aspect" data-dir="1">Taller</button>
         <button class="btn-sm" data-action="ff-done">Done</button>
       </div>`
-    : (isAdmin() ? `<div class="fmap-bar quiet"><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
+    : (isAdmin() ? `<div class="fmap-bar quiet"><button class="btn-sm ghost" data-action="ff-corridor">Resize corridor</button><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
 
   const legend = editing ? '' : `<div class="fmap-legend">
       <span><i class="free"></i>Free</span><span><i class="inuse"></i>Something in use</span><span><i class="na"></i>Not available</span>
@@ -701,8 +761,8 @@ export function renderFreeFloor(floor, floorRooms) {
 
   return `${toolbar}
     <div class="fmap-scroll">
-      <div class="fmap${editing ? ' editing' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
-        <div class="fmap-inner" data-ff-floor="1">${roomBoxes}${popover}<div class="fmap-draw" id="fmapDraw" hidden></div></div>
+      <div class="fmap${editing ? ' editing' : ''}${corridorMode ? ' corridor-mode' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
+        <div class="fmap-inner" data-ff-floor="1">${roomBoxes}${corridorMode ? '' : popover}${bars}<div class="fmap-draw" id="fmapDraw" hidden></div></div>
       </div>
     </div>
     ${legend}`;

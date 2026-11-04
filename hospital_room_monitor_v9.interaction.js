@@ -1011,6 +1011,16 @@ function ffPointerDown(event) {
   const roomEl = event.target.closest('.fmap-room');
   event.preventDefault();
 
+  if (state.layoutCorridor) {
+    // Resize-corridor mode: only the blue bars do anything.
+    const bar = event.target.closest('[data-ff-cbar]');
+    const barRoom = bar && rooms.find(r => r.id === bar.dataset.room);
+    if (!barRoom) return;
+    ffDrag = { mode: 'wall', wall: linkedWall(barRoom, bar.dataset.side), bar, floor, rect, at, start: at(event), moved: false };
+    bar.classList.add('dragging');
+    return;
+  }
+
   if (!roomEl) {
     // Empty floor: draw a new room.
     const start = at(event);
@@ -1036,6 +1046,20 @@ function ffPointerMove(event) {
   const dy = p.y - ffDrag.start.y;
   if (Math.abs(dx) + Math.abs(dy) > 0.4) ffDrag.moved = true;
   if (!ffDrag.moved) return;
+
+  if (ffDrag.mode === 'wall') {
+    const { wall, bar } = ffDrag;
+    const linked = new Set([...wall.same, ...wall.facing].map(x => x.r.id));
+    const free = rooms.filter(r => r.floorId === ffDrag.floor.id && r.box && !linked.has(r.id));
+    const horizontal = wall.side === 'n' || wall.side === 's';
+    const targets = horizontal ? [0, 100, ...free.flatMap(r => [r.box.y, r.box.y + r.box.h])] : [0, 100, ...free.flatMap(r => [r.box.x, r.box.x + r.box.w])];
+    applyWall(wall, snapTo(wall.line + (horizontal ? dy : dx), targets));
+    paintBoxes(wall.same.concat(wall.facing).map(x => x.r));
+    const moved = wall.same[0].r.box;
+    const now = wall.side === 'n' ? moved.y : wall.side === 's' ? moved.y + moved.h : wall.side === 'w' ? moved.x : moved.x + moved.w;
+    bar.style[horizontal ? 'top' : 'left'] = `${now}%`;
+    return;
+  }
 
   if (ffDrag.mode === 'draw') {
     ffDrag.cur = p;
@@ -1166,6 +1190,12 @@ function ffPointerUp() {
   if (!ffDrag) return;
   const d = ffDrag;
   ffDrag = null;
+  if (d.mode === 'wall') {
+    d.bar.classList.remove('dragging');
+    if (d.moved) saveState();
+    render();
+    return;
+  }
   if (d.mode === 'draw') {
     if (!d.moved) { render(); return; } // click on empty floor = deselect
     const box = drawBox(d);
@@ -1874,8 +1904,9 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
-  'ff-edit': () => { state.layoutEditing = state.currentFloorId; state.layoutSelected = null; state.layoutRenaming = false; render(); },
-  'ff-done': () => { state.layoutEditing = null; state.layoutSelected = null; state.layoutRenaming = false; render(); showToast('Layout saved.'); },
+  'ff-edit': () => { state.layoutEditing = state.currentFloorId; state.layoutCorridor = false; state.layoutSelected = null; state.layoutRenaming = false; render(); },
+  'ff-done': () => { state.layoutEditing = null; state.layoutSelected = null; state.layoutRenaming = false; state.layoutCorridor = false; render(); showToast('Layout saved.'); },
+  'ff-corridor': () => { state.layoutEditing = state.currentFloorId; state.layoutCorridor = true; state.layoutSelected = null; state.layoutRenaming = false; render(); },
   'fmap-rename': () => { state.layoutRenaming = true; render(); },
   'fmap-rename-save': () => fmapRenameSave(),
   'fmap-open': target => { state.layoutEditing = null; state.layoutSelected = null; openRoom(target.dataset.room); },

@@ -440,3 +440,7 @@ would need rethinking if this ever handled anything actually sensitive or advers
     side of a room also moves that side of every room lined up with it in an unbroken row,
     and the facing side of rooms across that wall. That's how the corridor is widened. Switching to Floor plan runs `convertFloorToFree()` (left-side
     rooms along the top, right-side along the bottom); switching back keeps the boxes.
+22. **Resize corridor.** A button next to Edit layout (and inside it) turns on
+    `state.layoutCorridor`: `corridorWalls()` (render.js) finds every row of room walls
+    that faces open floor and draws a blue bar on it; dragging a bar moves that row via
+    `linkedWall()`/`applyWall()`. Rooms can't be selected or opened in this mode.
