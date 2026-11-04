@@ -16,6 +16,7 @@ import {
   STATUS,
   devState,
   getAllSNs,
+  normalizeDevState,
   typeDefaults,
   initDevState,
   uid,
@@ -39,6 +40,10 @@ import {
   serverNow,
   deviceCount,
   getRoomStatusCounts,
+  trash,
+  addToTrash,
+  getTrashList,
+  pruneTrash,
 } from './hospital_room_monitor_v9.data.js';
 import {
   render,
@@ -60,6 +65,8 @@ import {
   saveDevName,
   applyTheme,
   cycleTheme,
+  getThemePref,
+  setThemePref,
   startEditDevSn,
   refreshDeviceVisual,
   initDrag,
@@ -107,6 +114,178 @@ function showToast(message, type = 'success') {
     toast.style.transition = 'opacity .18s, transform .18s';
     setTimeout(() => toast.remove(), 220);
   }, 2800);
+}
+
+// ── Settings ────────────────────────────────────────────────────────
+const POPUPS_KEY = 'hrm-popups';
+function popupsEnabled() {
+  try { return localStorage.getItem(POPUPS_KEY) !== 'off'; } catch (e) { return true; }
+}
+
+function timeAgo(ts) {
+  const mins = Math.max(0, Math.round((serverNow() - (Number(ts) || 0)) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
+function renderSettings() {
+  const body = document.getElementById('settingsBody');
+  if (!body) return;
+  const theme = getThemePref();
+  const seg = (action, value, current, label) =>
+    `<button type="button" class="seg-btn${value === current ? ' is-on' : ''}" role="radio" aria-checked="${value === current}" data-action="${action}" data-value="${value}">${label}</button>`;
+
+  let trashSection = '';
+  if (isAdminRole()) {
+    pruneTrash();
+    const items = getTrashList();
+    const kindLabel = { floor: 'Floor', room: 'Room', device: 'Device' };
+    trashSection = `
+      <section class="set-sec">
+        <h3 class="set-title">Recently deleted</h3>
+        <p class="set-help lead">Deleted floors, rooms and devices stay here for 30 days. Restoring puts them back with their devices, positions and notes.</p>
+        ${items.length ? `<ul class="trash-list">${items.map(item => {
+          const where = item.kind === 'room' ? (item.floorName ? ` · from ${esc(item.floorName)}` : '')
+            : item.kind === 'device' ? (item.roomName ? ` · from ${esc(item.roomName)}` : '')
+            : item.rooms?.length ? ` · ${item.rooms.length} rooms` : '';
+          return `<li class="trash-item">
+            <div class="trash-main"><span class="trash-kind">${kindLabel[item.kind] || 'Item'}</span><span class="trash-name">${esc(item.name)}</span>
+              <span class="trash-meta">Deleted ${esc(timeAgo(item.deletedAt))}${item.deletedBy ? ` by ${esc(item.deletedBy)}` : ''}${where}</span></div>
+            <button class="btn-mini primary" data-action="restore-trash" data-trash-id="${esc(item.id)}">Restore</button>
+          </li>`;
+        }).join('')}</ul>` : '<div class="set-empty">Nothing deleted in the last 30 days.</div>'}
+      </section>`;
+  }
+
+  body.innerHTML = `
+    <section class="set-sec">
+      <h3 class="set-title">Theme</h3>
+      <div class="seg" role="radiogroup" aria-label="Theme">
+        ${seg('set-theme', 'system', theme, 'Match my computer')}${seg('set-theme', 'light', theme, 'Light')}${seg('set-theme', 'dark', theme, 'Dark')}
+      </div>
+    </section>
+    <section class="set-sec">
+      <h3 class="set-title">Popups</h3>
+      <label class="set-toggle">
+        <input type="checkbox" data-action="toggle-popups" ${popupsEnabled() ? 'checked' : ''} />
+        <span>Show a popup when a teammate changes a status or adds a note</span>
+      </label>
+      <p class="set-help">The bell keeps the full list either way. Only affects this browser.</p>
+    </section>
+    ${trashSection}`;
+}
+
+function refreshSettingsIfOpen() {
+  if (document.getElementById('settingsModal')?.classList.contains('open')) renderSettings();
+}
+
+/** Toast with an Undo button (stays longer, and is clickable). */
+function showUndoToast(message, trashId) {
+  const stack = document.getElementById('toastStack');
+  if (!stack) return;
+  while (stack.children.length >= MAX_VISIBLE_TOASTS) stack.firstElementChild.remove();
+  const toast = document.createElement('div');
+  toast.className = 'toast success toast-undo';
+  const text = document.createElement('span');
+  text.textContent = message;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'toast-undo-btn';
+  btn.textContent = 'Undo';
+  btn.addEventListener('click', () => { toast.remove(); restoreFromTrash(trashId); });
+  toast.append(text, btn);
+  stack.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity .18s';
+    setTimeout(() => toast.remove(), 220);
+  }, 9000);
+}
+
+function snapshotDevices(deviceList) {
+  const ds = {};
+  const ps = {};
+  deviceList.forEach(d => {
+    if (devState[d.id]) ds[d.id] = devState[d.id];
+    if (positions[d.id]) ps[d.id] = positions[d.id];
+  });
+  return { devState: ds, positions: ps };
+}
+
+function deletedBy() {
+  return getAuthSession()?.username || '';
+}
+
+function restoreDeviceData(entry) {
+  Object.entries(entry.devState || {}).forEach(([id, value]) => { devState[id] = normalizeDevState(value); });
+  Object.entries(entry.positions || {}).forEach(([id, value]) => { positions[id] = value; });
+}
+
+function fixRoomArrays(room) {
+  // RTDB drops empty arrays, so a stored room may come back without them.
+  return { ...room, devices: Array.isArray(room.devices) ? room.devices : [], notes: Array.isArray(room.notes) ? room.notes : [] };
+}
+
+function uniqueName(name, taken) {
+  const lower = new Set(taken.map(n => String(n || '').toLowerCase()));
+  if (!lower.has(name.toLowerCase())) return name;
+  let n = 2;
+  while (lower.has(`${name} (${n})`.toLowerCase())) n += 1;
+  return `${name} (${n})`;
+}
+
+/** Puts a deleted floor, room or device back. Returns an error message or ''. */
+function restoreFromTrash(trashId) {
+  if (!isAdminRole()) return 'Only admins can restore.';
+  const entry = trash[trashId];
+  if (!entry) { showToast('That item is no longer in Recently deleted.', 'error'); return 'missing'; }
+
+  if (entry.kind === 'floor') {
+    const floor = { ...entry.floor, name: uniqueName(entry.floor.name, floors.map(f => f.name)) };
+    if (floors.some(f => f.id === floor.id)) floor.id = uid('floor');
+    floors.splice(Math.min(entry.floorIndex ?? floors.length, floors.length), 0, floor);
+    (entry.rooms || []).forEach(r => rooms.push({ ...fixRoomArrays(r), floorId: floor.id }));
+    restoreDeviceData(entry);
+    state.currentFloorId = floor.id;
+    state.currentRoom = null;
+  } else if (entry.kind === 'room') {
+    const floorId = floors.some(f => f.id === entry.floorId) ? entry.floorId : state.currentFloorId;
+    const room = fixRoomArrays(entry.room);
+    room.floorId = floorId;
+    room.name = uniqueName(room.name, rooms.filter(r => r.floorId === floorId).map(r => r.name));
+    const pos = room.pos;
+    room.pos = 9999;
+    rooms.push(room);
+    moveRoomToSlot(room.id, room.side, pos);
+    restoreDeviceData(entry);
+    state.currentFloorId = floorId;
+  } else if (entry.kind === 'device') {
+    const room = rooms.find(r => r.id === entry.roomId);
+    if (!room) {
+      showToast(`${entry.roomName || 'Its room'} no longer exists. Restore the room first.`, 'error');
+      return 'no-room';
+    }
+    const device = { ...entry.device };
+    if (device.sn && getAllSNs().has(String(device.sn).toUpperCase())) {
+      showToast(`Another device already uses serial ${device.sn}.`, 'error');
+      return 'sn';
+    }
+    room.devices.push(device);
+    restoreDeviceData(entry);
+  }
+
+  delete trash[trashId];
+  render();
+  initSearchFilters();
+  saveState();
+  setTimeout(initDrag, 40);
+  refreshSettingsIfOpen();
+  showToast(`${entry.name} restored.`);
+  return '';
 }
 
 function openConfirm({ title, message, confirmText = 'Confirm', danger = false, onConfirm }) {
@@ -389,12 +568,16 @@ This will also remove its status, position, notes, and saved custom fields.`,
     confirmText: isBed ? 'Delete Bed' : 'Delete Device',
     danger: true,
     onConfirm: () => {
+      const trashId = addToTrash({
+        kind: 'device', name: device.label, deletedBy: deletedBy(),
+        roomId: room.id, roomName: room.name, device, ...snapshotDevices([device]),
+      });
       room.devices.splice(index, 1);
       cleanupDeviceData(devId);
       closePanel();
       render();
       saveState();
-      showToast('Device deleted.', 'success');
+      showUndoToast(`${device.label} deleted.`, trashId);
       setTimeout(initDrag, 40);
     },
   });
@@ -551,10 +734,15 @@ export function deleteRoom(roomId) {
 
   openConfirm({
     title: 'Delete Room',
-    message: `Delete "${room.name}"?\n\nThis room contains ${deviceCount} device${deviceCount === 1 ? '' : 's'} and ${noteCount} note${noteCount === 1 ? '' : 's'}. Deleting the room will permanently remove them.`,
+    message: `Delete "${room.name}"?\n\nThis room contains ${deviceCount} device${deviceCount === 1 ? '' : 's'} and ${noteCount} note${noteCount === 1 ? '' : 's'}. You can restore it from Settings → Recently deleted for 30 days.`,
     confirmText: 'Delete Room',
     danger: true,
     onConfirm: () => {
+      const trashId = addToTrash({
+        kind: 'room', name: room.name, deletedBy: deletedBy(),
+        floorId: room.floorId, floorName: floors.find(f => f.id === room.floorId)?.name || '',
+        room, ...snapshotDevices(room.devices),
+      });
       cleanupRoomData(room);
       const index = rooms.findIndex(r => r.id === roomId);
       if (index !== -1) rooms.splice(index, 1);
@@ -562,7 +750,7 @@ export function deleteRoom(roomId) {
       render();
       saveState();
       if (document.getElementById('editFloorModal')?.classList.contains('open')) renderFloorManager();
-      showToast('Room deleted.', 'success');
+      showUndoToast(`${room.name} deleted.`, trashId);
     },
   });
 }
@@ -793,10 +981,15 @@ export function deleteFloor(floorId) {
 
   openConfirm({
     title: 'Delete Floor',
-    message: `Delete "${floor.name}"?\n\nThis floor contains ${floorRooms.length} room${floorRooms.length === 1 ? '' : 's'}, ${deviceCount} device${deviceCount === 1 ? '' : 's'}, and ${noteCount} room note${noteCount === 1 ? '' : 's'}. This data will be permanently deleted.`,
+    message: `Delete "${floor.name}"?\n\nThis floor contains ${floorRooms.length} room${floorRooms.length === 1 ? '' : 's'}, ${deviceCount} device${deviceCount === 1 ? '' : 's'}, and ${noteCount} room note${noteCount === 1 ? '' : 's'}. You can restore it from Settings → Recently deleted for 30 days.`,
     confirmText: 'Delete Floor',
     danger: true,
     onConfirm: () => {
+      const trashId = addToTrash({
+        kind: 'floor', name: floor.name, deletedBy: deletedBy(),
+        floor, floorIndex: floors.findIndex(f => f.id === floorId), rooms: floorRooms,
+        ...snapshotDevices(floorRooms.flatMap(r => r.devices)),
+      });
       floorRooms.forEach(cleanupRoomData);
       for (let i = rooms.length - 1; i >= 0; i -= 1) {
         if (rooms[i].floorId === floorId) rooms.splice(i, 1);
@@ -808,7 +1001,7 @@ export function deleteFloor(floorId) {
       render();
       initSearchFilters();
       saveState();
-      showToast('Floor deleted.', 'success');
+      showUndoToast(`${floor.name} deleted.`, trashId);
     },
   });
 }
@@ -1352,10 +1545,9 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
-  'cycle-theme': () => {
-    const next = cycleTheme();
-    showToast(`Theme: ${next === 'system' ? 'auto (follows your computer)' : next}.`, 'info');
-  },
+  'open-settings': () => { renderSettings(); document.getElementById('settingsModal')?.classList.add('open'); },
+  'set-theme': target => { setThemePref(target.dataset.value); renderSettings(); },
+  'restore-trash': target => restoreFromTrash(target.dataset.trashId),
   'pick-status': target => {
     const value = target.dataset.status;
     if (!Object.values(STATUS).includes(value)) return;
@@ -1468,7 +1660,7 @@ export async function startLiveSync() {
   });
   _unsubscribeNotifications = await subscribeNotifications(
     () => { updateNotifBadge(); refreshNotificationsIfOpen(); },
-    entry => showToast(entry.message, 'info'),
+    entry => { if (popupsEnabled()) showToast(entry.message, 'info'); },
   );
   // A promotion/demotion by another admin should apply live, not just after
   // this browser's next login.
@@ -1694,6 +1886,12 @@ export function initApp() {
         }
         showToast('Role updated.', 'success');
       });
+      return;
+    }
+
+    if (target.dataset.action === 'toggle-popups') {
+      try { localStorage.setItem(POPUPS_KEY, target.checked ? 'on' : 'off'); } catch (e) { /* ignore */ }
+      showToast(target.checked ? 'Popups on.' : 'Popups off.', 'info');
       return;
     }
 

@@ -33,6 +33,7 @@ import {
   getNotifications,
   getUnreadNotificationCount,
   serverNow,
+  addDeviceHistory,
 } from './hospital_room_monitor_v9.data.js';
 
 function statusLabel(status) {
@@ -44,6 +45,17 @@ function statusLabel(status) {
 function announceStatusChange(device, room, newStatus) {
   const who = getAuthSession()?.username || 'Someone';
   broadcastActivity(`${who} marked ${device.label} (${room.name}) as ${statusLabel(newStatus)}.`);
+}
+
+/** "Today 14:05", "Yesterday 09:12", "Mon 3 Nov, 16:40". */
+function formatHistoryTime(ts) {
+  const d = new Date(Number(ts) || 0);
+  const now = new Date(serverNow());
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const dayDiff = Math.round((new Date(now.toDateString()) - new Date(d.toDateString())) / 86400000);
+  if (dayDiff === 0) return `Today ${time}`;
+  if (dayDiff === 1) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
 }
 
 function formatNoteDate(value) {
@@ -319,7 +331,7 @@ export function renderHeader() {
         </div>
       </div>
       <button class="hdr-quick-btn${state.searchFilters?.status === STATUS.FREE ? ' active' : ''}" data-action="show-free-now" type="button" title="Show every free device across all floors">Free Now</button>
-      ${themeButtonHTML()}
+      <button class="hdr-theme-btn hdr-settings-btn" data-action="open-settings" type="button" title="Settings" aria-label="Settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 10.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z" stroke="currentColor" stroke-width="1.5"/><path d="M13.1 9.6l1.1.9-1.3 2.3-1.4-.5a5 5 0 0 1-1.4.8L9.9 14.5H7.3l-.3-1.4a5 5 0 0 1-1.4-.8l-1.4.5-1.3-2.3 1.1-.9a5 5 0 0 1 0-1.6l-1.1-.9 1.3-2.3 1.4.5a5 5 0 0 1 1.4-.8l.3-1.5h2.6l.3 1.5a5 5 0 0 1 1.4.8l1.4-.5 1.3 2.3-1.1.9a5 5 0 0 1 0 1.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="hdr-theme-lbl">Settings</span></button>
       ${session ? `
         <button class="hdr-bell-btn" data-action="open-notifications" type="button" title="Recent activity">
           🔔<span class="hdr-bell-badge" id="notifBadge" ${unread === 0 ? 'hidden' : ''}>${unread > 99 ? '99+' : unread}</span>
@@ -348,6 +360,11 @@ export function applyTheme() {
   const pref = getThemePref();
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+}
+export function setThemePref(pref) {
+  if (!THEME_ORDER.includes(pref)) return;
+  try { localStorage.setItem(THEME_KEY, pref); } catch (e) { /* ignore */ }
+  applyTheme();
 }
 export function cycleTheme() {
   const next = THEME_ORDER[(THEME_ORDER.indexOf(getThemePref()) + 1) % THEME_ORDER.length];
@@ -967,6 +984,19 @@ export function buildPanel(device, room) {
       <div class="note-ttl-hint">${NOTE_TTL_HINT}</div>
     </div>`;
 
+  const historyItems = (st.history || []).slice(0, 12);
+  const historySection = device.type === 'bed' ? '' : `
+    <div class="psec">
+      <div class="psec-title">History</div>
+      ${historyItems.length ? `<ol class="hist-list">${historyItems.map(h => {
+        const cls = h.status === STATUS.IN_USE ? 'inuse' : h.status === STATUS.NOT_AVAILABLE ? 'notavail' : 'avail';
+        const label = h.status === STATUS.IN_USE ? 'In use' : h.status === STATUS.NOT_AVAILABLE ? 'Not available' : 'Free';
+        const who = h.auto ? 'automatically at midnight' : (h.by ? `by ${esc(h.by)}` : '');
+        const forWho = h.employee && h.employee !== h.by ? ` for ${esc(h.employee)}` : '';
+        return `<li class="hist-item"><span class="hist-dot ${cls}"></span><span class="hist-text"><b>${label}</b> ${who}${forWho}</span><span class="hist-when">${esc(formatHistoryTime(h.at))}</span></li>`;
+      }).join('')}</ol>` : '<div class="hist-empty">No changes recorded yet.</div>'}
+    </div>`;
+
   const nameHTML = admin ? `
     <div class="inline-edit-wrap" id="nameView_${device.id}">
       <div class="panel-name">${esc(device.label)}</div>
@@ -1020,6 +1050,7 @@ export function buildPanel(device, room) {
       </div>
       ${statusDetails}
       ${notesSection}
+      ${historySection}
       ${saveChangesBar}
       ${dangerZone}
     </div>`;
@@ -1232,6 +1263,16 @@ export function commitDeviceStatus(devId, roomId, status) {
   const st = getDeviceState(devId);
   const prevStatus = st.status;
   updateDeviceStatus(devId, roomId, status);
+  if (st.status !== prevStatus) {
+    addDeviceHistory(devId, {
+      status: st.status,
+      by: getAuthSession()?.username || '',
+      employee: st.status === STATUS.IN_USE ? st.employee : '',
+    });
+    // updateDeviceStatus() already redrew the panel; redraw so the new
+    // history entry shows right away.
+    if (device && activePanelDeviceId === devId) buildPanel(device, room);
+  }
   if (hasUnsavedCustomFields(devId)) markPanelDirty(devId);
   else clearPanelDirty(devId);
   clearTimeout(pendingTextSaves.get(devId));

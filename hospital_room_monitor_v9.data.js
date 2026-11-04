@@ -163,7 +163,30 @@ export function normalizeDevState(entry = {}) {
     // display and the midnight auto-expiry sweep below. null for devices
     // that predate this field or have always been free.
     since: entry.since || null,
+    // Status log for the device panel's History section: newest first,
+    // { status, by, employee, reason, at }. Capped by addDeviceHistory().
+    history: Array.isArray(entry.history) ? entry.history : [],
   };
+}
+
+export const HISTORY_MAX_ENTRIES = 30;
+export const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Records a status change on the device (in memory; the caller saves). */
+export function addDeviceHistory(devId, entry) {
+  const st = getDeviceState(devId);
+  const now = serverNow();
+  const item = {
+    status: entry.status,
+    by: entry.by || '',
+    at: entry.at || now,
+  };
+  if (entry.employee) item.employee = entry.employee;
+  if (entry.reason) item.reason = entry.reason;
+  if (entry.auto) item.auto = true;
+  st.history = [item, ...(st.history || [])]
+    .filter(h => h && now - (Number(h.at) || 0) < HISTORY_MAX_AGE_MS)
+    .slice(0, HISTORY_MAX_ENTRIES);
 }
 
 export function initDevState(d) {
@@ -224,6 +247,37 @@ export function getRoomStatusCounts(room) {
 }
 
 export const positions = {};
+
+// ── Recently deleted ────────────────────────────────────────────────
+// Deleted floors/rooms/devices are kept here for 30 days so an admin can
+// restore them (Settings → Recently deleted, or Undo on the toast). Lives
+// inside /state so the whole-tree saveState() carries it and the existing
+// database rules already cover it.
+//   trash[id] = { id, kind: 'floor'|'room'|'device', name, deletedAt, deletedBy,
+//                 floor?, rooms?, room?, device?, roomId?, devState, positions }
+export const trash = {};
+export const TRASH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function addToTrash(entry) {
+  const id = 'del-' + serverNow().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+  trash[id] = JSON.parse(JSON.stringify({ ...entry, id, deletedAt: serverNow() }));
+  pruneTrash();
+  return id;
+}
+
+export function getTrashList() {
+  return Object.values(trash).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+}
+
+/** Drops entries older than 30 days. Returns true if anything was removed. */
+export function pruneTrash() {
+  const now = serverNow();
+  let removed = false;
+  Object.keys(trash).forEach(k => {
+    if (now - (Number(trash[k]?.deletedAt) || 0) > TRASH_MAX_AGE_MS) { delete trash[k]; removed = true; }
+  });
+  return removed;
+}
 // boxW/boxH are the actual rendered box size (some device types are drawn
 // smaller than dev.w/dev.h for visual padding — see sizeScale in
 // deviceHTML). Clamping must match whatever size is on screen, or a
@@ -291,6 +345,7 @@ function buildStatePayload() {
     rooms: JSON.parse(JSON.stringify(rooms)),
     devState: JSON.parse(JSON.stringify(devState)),
     positions: JSON.parse(JSON.stringify(positions)),
+    trash: JSON.parse(JSON.stringify(trash)),
     uidCounter: state.uidCounter,
   };
 }
@@ -422,6 +477,10 @@ function applyStatePayload(p, { resetNav = false } = {}) {
     Object.keys(positions).forEach(k => delete positions[k]);
     Object.assign(positions, p.positions);
   }
+  // Recently deleted. Always replaced (an absent key means the bin is empty:
+  // RTDB drops empty objects).
+  Object.keys(trash).forEach(k => delete trash[k]);
+  if (p.trash && typeof p.trash === 'object') Object.assign(trash, p.trash);
   if (resetNav) {
     // Fresh page load — don't resume a room/edit view from a past session.
     state.currentRoom = null;
@@ -639,6 +698,7 @@ function applyDeviceExpiry() {
       return;
     }
     if (expiryDayKey(entry.since) !== todayKey) {
+      entry.history = [{ status: STATUS.FREE, by: '', at: now, auto: true }, ...(Array.isArray(entry.history) ? entry.history : [])].slice(0, HISTORY_MAX_ENTRIES);
       entry.status = STATUS.FREE;
       entry.inUse = false;
       entry.employee = '';

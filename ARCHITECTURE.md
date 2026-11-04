@@ -418,3 +418,13 @@ would need rethinking if this ever handled anything actually sensitive or advers
     empty spot on each side shows "+ Add room here", which opens Add room with that side
     and spot preselected. Add room asks for side (Left/Right) and "Where" (at the start /
     after room X) instead of a raw position number.
+18. **Recently deleted.** Deleting a floor, room or device first copies it (with its
+    devices' devState and positions) into `trash` (data.js), which is part of the `/state`
+    payload, so `saveState()` carries it and no rule change was needed. Entries expire
+    after 30 days (`pruneTrash()`). Undo on the toast and Settings → Recently deleted both
+    call `restoreFromTrash()`. Old clients that don't know about `trash` will drop it on
+    their next whole-tree save, so deploy before relying on it.
+19. **Device history.** `devState[id].history` (newest first, max 30 entries, 30 days),
+    added by `commitDeviceStatus()` and by the midnight auto-free. Shown in the device panel.
+20. **Settings** (gear in the header): theme (stored per browser, `hrm-theme`), teammate
+    popups on/off (`hrm-popups`), and Recently deleted for admins.
