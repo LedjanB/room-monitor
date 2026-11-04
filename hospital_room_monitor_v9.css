@@ -1519,67 +1519,17 @@ body{
    ═════════════════════════════════════════════════════════════════ */
 :root[data-theme="dark"]{
   color-scheme:dark;
-  --bg:#0f1114;--bg2:#17191d;--bg3:#22252b;
-  --border:#2b2f36;--border2:#434852;
-  --text:#eceef2;--text2:#cfd3da;--text3:#979ca6;--text4:#6c717b;
-  --panel-bg:#181a1f;
-  --green:#4fc27a;--green-bg:#132a1d;--green-border:#2a5e3e;
-  --red:#f07a6e;--red-bg:#381a17;--red-border:#7a3630;
-  --orange:#f0a640;--orange-bg:#372812;--orange-border:#7a5520;
-  --warning:#f0b860;--warning-bg:#372812;--warning-border:#7a5520;
-  --accent:#6c9bff;--accent-bg:#1a2640;
+  --bg:#0d1322;--bg2:#121a2d;--bg3:#1b2540;
+  --border:#24304d;--border2:#34436a;
+  --text:#e9edf6;--text2:#c6cede;--text3:#8d99b3;--text4:#5f6b87;
+  --panel-bg:#141c30;
+  --green:#3fcf8a;--green-bg:#0f2b20;--green-border:#1f6145;
+  --red:#ff7266;--red-bg:#33161a;--red-border:#7a2f33;
+  --orange:#ffad4a;--orange-bg:#33240f;--orange-border:#7a5520;
+  --warning:#ffc46b;--warning-bg:#33240f;--warning-border:#7a5520;
+  --accent:#7ea6ff;--accent-bg:#1a2848;
+  --sign:#e9edf6;--sign-ink:#0d1322;--wall:#0d1322;
 }
-:root[data-theme="dark"] body{background:linear-gradient(180deg,#0f1114 0%,#0c0d10 100%);}
-:root[data-theme="dark"] .hdr{background:#0a0b0d;color:#eef1ee;box-shadow:0 1px 0 rgba(255,255,255,.06);}
-:root[data-theme="dark"] .breadcrumb{background:rgba(18,20,24,.8);border-bottom-color:rgba(255,255,255,.06);}
-:root[data-theme="dark"] .floor-plan{background:linear-gradient(180deg,#16181c,#131519);border-color:#272a30;box-shadow:0 16px 40px rgba(0,0,0,.35);}
-:root[data-theme="dark"] .cap{background:#363a42;}
-:root[data-theme="dark"] .floor-row{border-bottom-color:rgba(255,255,255,.05);}
-:root[data-theme="dark"] .corridor-col{background:linear-gradient(to bottom,#1a1c21,#16181c);border-color:#2b2f36;}
-:root[data-theme="dark"] .room-btn{background:rgba(28,30,35,.96);border-color:#2e3239;color:var(--text);}
-:root[data-theme="dark"] .room-btn:hover{background:#22252b;border-color:#454a54;box-shadow:0 10px 28px rgba(0,0,0,.35);}
-:root[data-theme="dark"] .empty-cell{border-color:#2e3239;}
-:root[data-theme="dark"] .floor-tab{background:rgba(28,30,35,.96);border-color:#2e3239;color:var(--text2);}
-:root[data-theme="dark"] .floor-tab.active{background:var(--text);border-color:var(--text);color:#101114;}
-:root[data-theme="dark"] .floor-tab.active,
-:root[data-theme="dark"] .btn-sm:not(.ghost),
-:root[data-theme="dark"] .btn-primary,
-:root[data-theme="dark"] .inline-save,
-:root[data-theme="dark"] .panel-x:hover,
-:root[data-theme="dark"] .pos-opt:hover,
-:root[data-theme="dark"] .pos-opt.sel,
-:root[data-theme="dark"] .btn-mini.primary{color:#101114;}
-:root[data-theme="dark"] .btn-sm.ghost,
-:root[data-theme="dark"] .btn-cancel,
-:root[data-theme="dark"] .btn-mini{background:rgba(28,30,35,.92);color:var(--text);border-color:var(--border2);}
-:root[data-theme="dark"] .rstatus-pill{background:rgba(0,0,0,.25);}
-:root[data-theme="dark"] .room-area{background:linear-gradient(180deg,#17191d,#141619);border-color:#2b2f36;}
-:root[data-theme="dark"] .wall-top,:root[data-theme="dark"] .wall-left,
-:root[data-theme="dark"] .wall-right,:root[data-theme="dark"] .wall-bottom{background:#4a4f59;}
-:root[data-theme="dark"] .scard,
-:root[data-theme="dark"] .psec{background:rgba(28,30,35,.94);border-color:#2b2f36;}
-:root[data-theme="dark"] .srow,:root[data-theme="dark"] .dev-list-item,
-:root[data-theme="dark"] .bed-list-item,:root[data-theme="dark"] .pkv{border-bottom-color:rgba(255,255,255,.06);}
-:root[data-theme="dark"] .dev-status-inline{background:#1d2025;border-color:#2e3239;}
-:root[data-theme="dark"] .panel{background:#141619;border-color:#2b2f36;}
-:root[data-theme="dark"] .panel-hdr{background:#141619;border-color:#2b2f36;}
-:root[data-theme="dark"] .panel-body{background:linear-gradient(180deg,#141619 0%,#111316 100%);}
-:root[data-theme="dark"] .panel-bg{background:rgba(0,0,0,.45);}
-:root[data-theme="dark"] .field-input,:root[data-theme="dark"] .field-select,
-:root[data-theme="dark"] .field-textarea,:root[data-theme="dark"] .emp-input,
-:root[data-theme="dark"] .custom-field input,:root[data-theme="dark"] .inline-edit{background:#0f1114;color:var(--text);border-color:var(--border2);}
-:root[data-theme="dark"] .note-item,:root[data-theme="dark"] .note-empty{background:#1b1d22;border-color:#2b2f36;color:var(--text2);}
-:root[data-theme="dark"] .add-field-btn{background:#1b1d22;border-color:var(--border2);color:var(--text2);}
-:root[data-theme="dark"] .modal,:root[data-theme="dark"] .search-results{border-color:var(--border2);}
-:root[data-theme="dark"] .auth-card{box-shadow:0 4px 24px rgba(0,0,0,.4);}
-:root[data-theme="dark"] .view-notice{background:#2e2810;border-color:#6b5a1c;color:#f0d878;}
-:root[data-theme="dark"] .toast{background:#25282e;color:#fff;}
-:root[data-theme="dark"] .toast.success{background:#1f6b3a;}
-:root[data-theme="dark"] .toast.error{background:#8a2a22;}
-:root[data-theme="dark"] .room-sub,:root[data-theme="dark"] .scard-title,
-:root[data-theme="dark"] .panel-type,:root[data-theme="dark"] .psec-title{color:var(--text3);}
-:root[data-theme="dark"] .dev-quick-toggle{border-color:#181a1f;}
-
 /* Theme picker in the header */
 .hdr-theme-btn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:5px;padding:4px 8px;cursor:pointer;color:#fff;display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11px;font-weight:800;letter-spacing:.03em;transition:background .12s;}
 .hdr-theme-btn:hover{background:rgba(255,255,255,.22);}
@@ -1591,3 +1541,124 @@ body{
 .dev-actions{top:-6px;right:-16px;}
 :root[data-theme="dark"] .tv-outer{box-shadow:0 0 0 1px rgba(255,255,255,.08),2px 3px 0 rgba(0,0,0,.4);}
 @media (max-width: 980px){ .room-wrap > .room-canvas{width:100%;} }
+
+/* ═════════════════════════════════════════════════════════════════
+   WAYFINDING THEME
+   The board is styled after hospital wayfinding signage: navy sign
+   panels, white walls, one highly legible face (Atkinson Hyperlegible,
+   made for low-vision reading at a distance). Room cards read like the
+   Room Sign devices on the doors. Status colours are the only colour.
+   ═════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#eef1f6;--bg2:#e3e8f0;--bg3:#d5dce8;
+  --border:#d3dae6;--border2:#b4bfd1;
+  --text:#152039;--text2:#2e3a55;--text3:#5d6982;--text4:#8e98ad;
+  --panel-bg:#ffffff;
+  --green:#1a8f5a;--green-bg:#e5f5ed;--green-border:#a6dcc1;
+  --red:#d63c31;--red-bg:#fdeceb;--red-border:#f2b6b1;
+  --orange:#e07d10;--orange-bg:#fff2e2;--orange-border:#f6cc96;
+  --accent:#2f5bd3;--accent-bg:#e8eefc;
+  --sign:#1c2c55;      /* signage navy */
+  --sign-ink:#ffffff;
+  --wall:#ffffff;
+}
+body{font-family:'Atkinson Hyperlegible',Inter,ui-sans-serif,system-ui,'Segoe UI',Arial,sans-serif;background:var(--bg);font-weight:400;}
+:root[data-theme="dark"] body,body{background:var(--bg);}
+button,input,select,textarea{font-family:inherit;}
+
+/* Header: a single navy sign band */
+.hdr{background:var(--sign);color:var(--sign-ink);box-shadow:none;border-bottom:0;}
+:root[data-theme="dark"] .hdr{background:#0a0f1c;border-bottom:1px solid var(--border);}
+.hdr-mark{display:none;}
+.hdr-title{font-size:17px;font-weight:700;letter-spacing:0;color:#fff;display:flex;align-items:baseline;gap:8px;}
+.hdr-brand{font-weight:400;opacity:.7;font-size:15px;}
+.hdr-pill{border-color:rgba(255,255,255,.22);color:rgba(255,255,255,.75);font-weight:700;letter-spacing:0;}
+.hdr-action-btn,.hdr-bell-btn,.hdr-theme-btn{border-radius:8px;letter-spacing:0;}
+.hdr-action-btn.signout{background:transparent;border-color:rgba(255,255,255,.22);color:rgba(255,255,255,.85);}
+.hdr-search{border-radius:8px;}
+
+.breadcrumb{background:transparent;border-bottom:1px solid var(--border);backdrop-filter:none;}
+
+/* Sentence case everywhere; signs don't shout */
+.scard-title,.psec-title,.field-label,.sr-title,.sr-count,.panel-hdr-t,.note-meta,.sr-filters .field-label{
+  text-transform:none;letter-spacing:0;font-size:13px;font-weight:700;color:var(--text3);}
+.scard-title,.psec-title{font-size:14px;color:var(--text);margin-bottom:10px;}
+.rdevs{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text3);font-weight:400;}
+
+/* Floor title */
+.corridor-label{font-size:28px;font-weight:700;letter-spacing:-.01em;}
+.floor-tab{border-radius:999px;background:var(--panel-bg);border:1.5px solid var(--border);color:var(--text2);box-shadow:none;font-weight:700;}
+.floor-tab.active{background:var(--sign);border-color:var(--sign);color:var(--sign-ink);}
+
+/* The corridor: white walls, a quiet floor strip down the middle */
+.floor-plan{background:var(--wall);border:1.5px solid var(--border);border-radius:14px;box-shadow:none;}
+.cap{background:var(--sign);height:6px;}
+.floor-row{border-bottom:1px solid var(--bg2);}
+.corridor-col{background:var(--bg);border-left:1px solid var(--border);border-right:1px solid var(--border);}
+
+/* Room cards = door signs: navy plate with the room name, status bar under */
+.room-btn{background:var(--panel-bg);border:1.5px solid var(--border);border-radius:12px;box-shadow:none;padding:0;overflow:hidden;color:var(--text);}
+.room-btn:hover{background:var(--panel-bg);border-color:var(--sign);box-shadow:0 6px 18px rgba(21,32,57,.10);transform:none;}
+.room-btn.has-inuse{border-left-width:1.5px;}
+.room-btn .room-btn-top{background:var(--sign);padding:10px 14px;margin:0;}
+.room-btn .rname{color:var(--sign-ink);font-size:20px;font-weight:700;letter-spacing:0;}
+.room-btn .rdevs,.room-btn .rstatus-summary,.room-btn .rstatus-dots{margin-left:14px;margin-right:14px;}
+.room-btn .rdevs{margin-top:10px;}
+.room-btn .rstatus-dots{margin-bottom:12px;}
+.rstatus-pill{border-width:0;padding:3px 9px;font-size:12px;font-weight:700;}
+.rstatus-pill.avail{background:var(--green-bg);}
+.rstatus-pill.inuse{background:var(--red-bg);}
+.rstatus-pill.notavail{background:var(--orange-bg);}
+.empty-cell{border:1.5px dashed var(--border);border-radius:12px;}
+
+/* Buttons */
+.btn-sm,.btn-primary,.btn-cancel,.btn-mini{border-radius:8px;}
+.btn-sm.ghost,.btn-cancel,.btn-mini{background:var(--panel-bg);border:1.5px solid var(--border2);color:var(--text);box-shadow:none;}
+.btn-sm.ghost:hover,.btn-cancel:hover{border-color:var(--sign);opacity:1;}
+.btn-primary,.btn-sm:not(.ghost),.save-panel-btn,.inline-save{background:var(--sign);color:var(--sign-ink);}
+.btn-add-device{background:var(--sign);border-radius:8px;box-shadow:none;}
+:root[data-theme="dark"] .btn-add-device{background:#2b3d70;}
+
+/* Room view */
+.room-title{font-size:28px;font-weight:700;}
+.room-area{background:var(--wall);border:1.5px solid var(--border);border-radius:14px;}
+.wall-top,.wall-left,.wall-right,.wall-bottom{background:var(--sign);opacity:1;}
+.scard,.psec{background:var(--panel-bg);border:1.5px solid var(--border);border-radius:12px;box-shadow:none;}
+.srow,.dev-list-item,.bed-list-item,.pkv{border-bottom:1px solid var(--bg2);}
+.dev-status-inline{background:var(--bg);border-color:var(--border);}
+
+/* Device panel */
+.panel{background:var(--bg);border-left:1.5px solid var(--border);}
+.panel-hdr{background:var(--sign);color:var(--sign-ink);border-bottom:0;}
+.panel-hdr .panel-hdr-t{color:rgba(255,255,255,.75);font-size:13px;}
+.panel-hdr .panel-hdr-sn{color:#fff;}
+.panel-hdr .panel-x{background:transparent;color:#fff;border-color:rgba(255,255,255,.3);}
+.panel-body{background:var(--bg);}
+.panel-name{font-size:24px;font-weight:700;}
+.field-input,.field-select,.field-textarea,.emp-input,.custom-field input,.inline-edit{background:var(--panel-bg);border:1.5px solid var(--border2);border-radius:8px;color:var(--text);}
+.note-item,.note-empty{background:var(--bg);border:1.5px solid var(--border);border-radius:10px;}
+.add-field-btn{background:transparent;border:1.5px dashed var(--border2);border-radius:8px;color:var(--text2);}
+.status-pick-btn{border-radius:8px;background:var(--panel-bg);}
+.dev-name-tag{font-family:inherit;}
+
+/* Dark: the same signage at night */
+:root[data-theme="dark"] .floor-tab.active{background:var(--sign);color:var(--sign-ink);border-color:var(--sign);}
+:root[data-theme="dark"] .room-btn .room-btn-top{background:#22305a;}
+:root[data-theme="dark"] .room-btn .rname{color:#fff;}
+:root[data-theme="dark"] .room-btn:hover{border-color:var(--accent);box-shadow:none;}
+:root[data-theme="dark"] .cap{background:#22305a;}
+:root[data-theme="dark"] .wall-top,:root[data-theme="dark"] .wall-left,
+:root[data-theme="dark"] .wall-right,:root[data-theme="dark"] .wall-bottom{background:#34436a;}
+:root[data-theme="dark"] .floor-plan,:root[data-theme="dark"] .room-area{background:var(--bg2);}
+:root[data-theme="dark"] .btn-primary,:root[data-theme="dark"] .btn-sm:not(.ghost),
+:root[data-theme="dark"] .save-panel-btn,:root[data-theme="dark"] .inline-save{background:#2b3d70;color:#fff;}
+:root[data-theme="dark"] .panel-hdr{background:#0a0f1c;border-bottom:1px solid var(--border);}
+:root[data-theme="dark"] .toast{background:#22305a;}
+:root[data-theme="dark"] .toast.success{background:#17704a;}
+:root[data-theme="dark"] .toast.error{background:#9a2c25;}
+:root[data-theme="dark"] .view-notice{background:#2e2810;border-color:#6b5a1c;color:#f0d878;}
+:root[data-theme="dark"] .rstatus-pill{background:transparent;}
+:root[data-theme="dark"] .rstatus-pill.avail{background:var(--green-bg);}
+:root[data-theme="dark"] .rstatus-pill.inuse{background:var(--red-bg);}
+:root[data-theme="dark"] .rstatus-pill.notavail{background:var(--orange-bg);}
+:root[data-theme="dark"] .dev-quick-toggle{border-color:var(--bg2);}

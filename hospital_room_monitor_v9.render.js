@@ -312,7 +312,7 @@ export function renderHeader() {
   return `<div class="hdr">
     <div class="hdr-left">
       <div class="hdr-mark"></div>
-      <div class="hdr-title">HELLOCARE ROOM MONITOR</div>
+      <div class="hdr-title"><span class="hdr-brand">hellocare</span> Room Monitor</div>
     </div>
     <div class="hdr-right">
       <div class="hdr-search-wrap">
