@@ -25,6 +25,7 @@ import {
   saveLocalUIState,
   typeDefaults,
   devSummary,
+  deviceCount,
   roomHasInUse,
   bedSVG,
   broadcastActivity,
@@ -301,7 +302,7 @@ export function renderHeader() {
   // every floor while the rooms pill counted only this one, so the header
   // read "8 ROOMS · 55 DEVICES" directly above a subheader saying
   // "8 rooms · 48 devices".
-  const tot = floorRooms.reduce((sum, room) => sum + (room.devices?.length || 0), 0);
+  const tot = floorRooms.reduce((sum, room) => sum + deviceCount(room), 0);
   const session = getAuthSession();
   const isAdm = isAdminSession();
   const roleChip = session
@@ -601,7 +602,7 @@ export function renderCorridor() {
     <div class="corridor-top">
       <div class="corridor-label-group">
         <div class="corridor-label">${esc(currentFloor.name)}</div>
-        <div class="corridor-sub">${floorRooms.length} rooms · ${floorRooms.reduce((total, room) => total + room.devices.length, 0)} devices</div>
+        <div class="corridor-sub">${floorRooms.length} rooms · ${floorRooms.reduce((total, room) => total + deviceCount(room), 0)} devices</div>
         ${floorSummary}
       </div>
       <div class="corridor-actions">
@@ -623,6 +624,7 @@ export function renderCorridor() {
 export function renderRoom(room) {
   const roomTotals = {};
   room.devices.forEach(device => {
+    if (device.type === 'bed') return; // beds have their own card
     roomTotals[device.type] = (roomTotals[device.type] || 0) + 1;
   });
 
@@ -704,7 +706,7 @@ export function renderRoom(room) {
     <div class="room-sidebar">
       <div class="scard room-info-card">
         <div class="scard-title">Room Info</div>
-        <div class="srow"><span class="srow-k">Total Devices</span><span class="srow-v">${room.devices.length}</span></div>
+        <div class="srow"><span class="srow-k">Total Devices</span><span class="srow-v">${deviceCount(room)}</span></div>
         ${statsRows}
       </div>
       ${deviceListItems ? `<div class="scard dev-status-card"><div class="scard-title">Device Status</div>${deviceListItems}</div>` : ''}

@@ -520,9 +520,15 @@ export const typeDefaults = {
   bed: { w: 20, h: 52 },
 };
 
+/** Beds are furniture, not devices: they never count toward device totals. */
+export function deviceCount(room) {
+  return (room.devices || []).filter(d => d.type !== 'bed').length;
+}
+
 export function devSummary(room) {
   const counts = {};
   room.devices.forEach(d => {
+    if (d.type === 'bed') return;
     counts[d.type] = (counts[d.type] || 0) + 1;
   });
   return Object.entries(counts)
