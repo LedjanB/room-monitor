@@ -447,3 +447,8 @@ would need rethinking if this ever handled anything actually sensitive or advers
     selected, moved and resized with the same 8 handles as rooms; moving a corridor edge
     pushes the row of rooms on that side (`corridorWall()` → `linkedWall()`/`applyWall()`).
     "+ Corridor" adds another piece (for turns/branches), Delete removes one.
+23. **Resize floor.** The "Resize floor" button (admins, both layouts) shows handles on the
+    floor's edges and bottom corners. Width → `floor.viewWidth` (px, the box is centred so
+    it grows on both sides); height → `floor.rowHeight` (straight view, min room-card
+    height) or `floor.aspect` (floor plan). The straight view also shows the hallway-width
+    handle (`floor.corridorWidth`) in the same mode.

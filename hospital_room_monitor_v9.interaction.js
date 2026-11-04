@@ -1004,6 +1004,66 @@ let ffDrag = null;
 
 // Straight corridor: drag the handle to change the corridor's width.
 let corrDrag = null;
+// Whole floor: drag its corners/edges (both layouts). The box is centred, so
+// width changes by 2x the mouse move. Height: row height (straight) or the
+// canvas shape (floor plan).
+let floorRz = null;
+function floorRzDown(event) {
+  const h = event.target.closest?.('[data-floor-rz]');
+  if (!h || !isAdminRole()) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const floor = floors.find(f => f.id === state.currentFloorId);
+  const box = h.closest('.floor-plan') || h.closest('.fmap-scroll') || h.closest('.fmap')?.closest('.fmap-scroll');
+  if (!floor || !box) return;
+  const free = floor.layout === 'free';
+  const sizeEl = free ? box : h.closest('.floor-plan');
+  const rect = sizeEl.getBoundingClientRect();
+  const firstRow = !free ? sizeEl.querySelector('.floor-row') : null;
+  floorRz = {
+    floor, free, el: sizeEl, dir: h.dataset.floorRz,
+    startX: event.clientX, startY: event.clientY,
+    w: rect.width, h: rect.height,
+    rowH: firstRow ? firstRow.getBoundingClientRect().height : 0,
+    rows: !free ? sizeEl.querySelectorAll('.floor-row').length : 0,
+    aspect: Number(floor.aspect) || 0.55,
+  };
+  h.classList.add('dragging');
+}
+function floorRzMove(event) {
+  if (!floorRz) return;
+  const d = floorRz;
+  const dx = event.clientX - d.startX;
+  const dy = event.clientY - d.startY;
+  if (d.dir.includes('e') || d.dir.includes('w')) {
+    const sign = d.dir.includes('w') ? -1 : 1;
+    d.newW = Math.round(ffClamp(d.w + sign * dx * 2, 360, 1800));
+    d.el.style.setProperty('--floor-w', `${d.newW}px`);
+  }
+  if (d.dir.includes('s')) {
+    if (d.free) {
+      const width = d.newW || d.w;
+      d.newAspect = Number(ffClamp((d.h + dy) / width, 0.25, 2).toFixed(3));
+      const canvas = d.el.querySelector('.fmap');
+      if (canvas) canvas.style.paddingBottom = `${(d.newAspect * 100).toFixed(2)}%`;
+    } else {
+      d.newRowH = Math.round(ffClamp(d.rowH + dy / Math.max(1, d.rows), 70, 400));
+      d.el.style.setProperty('--row-h', `${d.newRowH}px`);
+    }
+  }
+}
+function floorRzUp() {
+  if (!floorRz) return;
+  const d = floorRz;
+  floorRz = null;
+  document.querySelectorAll('.floor-rz.dragging').forEach(e => e.classList.remove('dragging'));
+  let changed = false;
+  if (d.newW && d.newW !== d.floor.viewWidth) { d.floor.viewWidth = d.newW; changed = true; }
+  if (d.newAspect && d.newAspect !== d.floor.aspect) { d.floor.aspect = d.newAspect; changed = true; }
+  if (d.newRowH && d.newRowH !== d.floor.rowHeight) { d.floor.rowHeight = d.newRowH; changed = true; }
+  if (changed) saveState();
+}
+
 function corrPointerDown(event) {
   const handle = event.target.closest?.('[data-corr-handle]');
   if (!handle || !isAdminRole()) return;
@@ -1978,10 +2038,10 @@ const actionHandlers = {
   'save-panel': target => { savePanel(getDeviceId(target), target.dataset.room); showToast('Changes saved.'); },
   'start-edit-name': target => startEditDevName(getDeviceId(target), target.dataset.room),
   'save-dev-name': target => saveDevName(getDeviceId(target), target.dataset.room),
-  'ff-edit': () => { state.layoutEditing = state.currentFloorId; state.layoutCorridor = false; state.layoutSelected = null; state.layoutRenaming = false; render(); },
+  'ff-edit': () => { state.corridorResizing = null; state.layoutEditing = state.currentFloorId; state.layoutCorridor = false; state.layoutSelected = null; state.layoutRenaming = false; render(); },
   'ff-done': () => { state.layoutEditing = null; state.layoutSelected = null; state.layoutRenaming = false; state.layoutCorridor = false; render(); showToast('Layout saved.'); },
-  'corr-resize': () => { state.corridorResizing = state.currentFloorId; render(); },
-  'corr-done': () => { state.corridorResizing = null; render(); showToast('Corridor size saved.'); },
+  'corr-resize': () => { state.corridorResizing = state.currentFloorId; state.layoutEditing = null; render(); },
+  'corr-done': () => { state.corridorResizing = null; render(); showToast('Floor size saved.'); },
   'ff-corridor': () => {
     const floor = floors.find(f => f.id === state.currentFloorId);
     state.layoutEditing = state.currentFloorId;
@@ -2506,6 +2566,9 @@ export function initApp() {
   document.addEventListener('dragend', handleRoomDragEnd);
   document.addEventListener('click', handleClick);
   document.addEventListener('pointerdown', ffPointerDown);
+  document.addEventListener('pointerdown', floorRzDown, true);
+  document.addEventListener('pointermove', floorRzMove);
+  document.addEventListener('pointerup', floorRzUp);
   document.addEventListener('pointerdown', corrPointerDown);
   document.addEventListener('pointermove', corrPointerMove);
   document.addEventListener('pointerup', corrPointerUp);

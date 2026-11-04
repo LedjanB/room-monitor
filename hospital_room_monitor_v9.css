@@ -1743,7 +1743,7 @@ button.fmap-room:focus-visible{outline:3px solid var(--accent);outline-offset:-3
 
 /* Straight corridor: adjustable corridor width (floor.corridorWidth) */
 .floor-plan[style] .floor-row{grid-template-columns:1fr var(--corr-w,60px) 1fr;}
-.floor-plan[style]{max-width:calc(700px + var(--corr-w,60px));position:relative;}
+.floor-plan[style]{max-width:var(--floor-w,calc(700px + var(--corr-w,60px)));position:relative;}
 @media (max-width: 900px){ .floor-plan[style] .floor-row{grid-template-columns:1fr calc(var(--corr-w,60px) * .45) 1fr;} }
 .corr-tip{max-width:760px;margin:0 auto 10px;font-size:13px;color:var(--text3);text-align:center;}
 .floor-plan.corr-resizing .corridor-col{background:rgba(47,111,237,.10);box-shadow:inset 2px 0 0 var(--accent),inset -2px 0 0 var(--accent);}
@@ -1762,3 +1762,19 @@ button.fmap-room:focus-visible{outline:3px solid var(--accent);outline-offset:-3
 .fmap-corr.dragging{cursor:grabbing;}
 .fmap-pop-t{font-size:12px;font-weight:800;color:var(--text3);padding:0 6px 0 4px;}
 :root[data-theme="dark"] .fmap-corr{background:rgba(255,255,255,.03);}
+
+/* Resize floor (both layouts) */
+.floor-plan[style] .room-btn{min-height:var(--row-h,auto);}
+.fmap-scroll[style]{max-width:var(--floor-w,980px);}
+.fmap-bar{max-width:var(--floor-w,980px);}
+.floor-resizing{outline:2px dashed var(--accent);outline-offset:4px;}
+.fmap.floor-resizing{position:relative;}
+.floor-rz{position:absolute;z-index:30;background:var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.25);touch-action:none;}
+.floor-rz.e,.floor-rz.w{top:calc(50% - 22px);width:10px;height:44px;border-radius:6px;cursor:ew-resize;}
+.floor-rz.e{right:-5px;} .floor-rz.w{left:-5px;}
+.floor-rz.s{bottom:-5px;left:calc(50% - 22px);width:44px;height:10px;border-radius:6px;cursor:ns-resize;}
+.floor-rz.se,.floor-rz.sw{bottom:-7px;width:18px;height:18px;border-radius:4px;border:3px solid #fff;box-sizing:border-box;}
+.floor-rz.se{right:-7px;cursor:nwse-resize;} .floor-rz.sw{left:-7px;cursor:nesw-resize;}
+.floor-rz:hover,.floor-rz.dragging{box-shadow:0 0 0 5px rgba(47,111,237,.28),0 2px 8px rgba(0,0,0,.25);}
+.fmap-scroll:has(.floor-resizing){overflow:visible;}
+.floor-plan.floor-resizing{overflow:visible;}

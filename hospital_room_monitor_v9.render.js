@@ -597,11 +597,11 @@ export function renderCorridor() {
     </div>`;
   }
 
-  const resizing = isAdmin() && !isFree && state.corridorResizing === currentFloor.id;
+  const resizing = isAdmin() && state.corridorResizing === currentFloor.id;
   const adminActions = isAdmin() ? `<div class="floor-manage-actions">
-    ${isFree ? '' : (resizing
+    ${resizing
       ? `<button class="btn-sm" data-action="corr-done">Done</button>`
-      : `<button class="btn-sm ghost" data-action="corr-resize">Resize corridor</button>`)}
+      : `<button class="btn-sm ghost" data-action="corr-resize">Resize floor</button>`}
     <button class="btn-sm ghost" data-action="edit-floor" data-floor="${currentFloor.id}">Edit Floor</button>
     <button class="btn-sm ghost" data-action="add-room">+ Add Room</button>
   </div>` : '';
@@ -636,9 +636,9 @@ export function renderCorridor() {
       ${floorTabs}
       ${isAdmin() ? `<button class="floor-tab-add admin-only" data-action="add-floor" title="Add floor/corridor">＋</button>` : ''}
     </div>
-    ${resizing ? '<div class="corr-tip">Drag the blue handle left or right to make the corridor wider or narrower. Click Done when finished.</div>' : ''}
-    ${isFree ? renderFreeFloor(currentFloor, floorRooms) : `<div class="floor-plan${resizing ? ' corr-resizing' : ''}" style="--corr-w:${Number(currentFloor.corridorWidth) || 60}px;">
-      ${resizing ? '<div class="corr-handle" data-corr-handle="1" title="Drag to resize the corridor" aria-label="Resize corridor"></div>' : ''}
+    ${resizing ? `<div class="corr-tip">Drag the floor's corners or edges to resize it.${isFree ? '' : ' Drag the round handle in the middle to change the hallway width.'} Click Done when finished.</div>` : ''}
+    ${isFree ? renderFreeFloor(currentFloor, floorRooms, resizing) : `<div class="floor-plan${resizing ? ' corr-resizing floor-resizing' : ''}" style="--corr-w:${Number(currentFloor.corridorWidth) || 60}px;${Number(currentFloor.viewWidth) ? `--floor-w:${Number(currentFloor.viewWidth)}px;` : ''}${Number(currentFloor.rowHeight) ? `--row-h:${Number(currentFloor.rowHeight)}px;` : ''}">
+      ${resizing ? `<div class="corr-handle" data-corr-handle="1" title="Drag to change the hallway width" aria-label="Hallway width"></div>${['e', 'w', 's', 'se', 'sw'].map(h => `<span class="floor-rz ${h}" data-floor-rz="${h}" aria-hidden="true"></span>`).join('')}` : ''}
       <div class="cap"></div>
       ${rows}
       <div class="cap bot"></div>
@@ -653,7 +653,7 @@ export function renderCorridor() {
 // looks the same on every screen. Editing is admin-only (state.layoutEditing).
 export const FREE_DEFAULT_ASPECT = 0.55;
 
-export function renderFreeFloor(floor, floorRooms) {
+export function renderFreeFloor(floor, floorRooms, resizing = false) {
   const editing = isAdmin() && state.layoutEditing === floor.id;
   const aspect = Number(floor.aspect) || FREE_DEFAULT_ASPECT;
   const pct = v => `${Number(v) || 0}%`;
@@ -712,19 +712,18 @@ export function renderFreeFloor(floor, floorRooms) {
     ? `<div class="fmap-bar" role="toolbar" aria-label="Layout editor">
         <span class="fmap-tip">Click a room or the corridor, then drag it or its corners. Drag on empty floor to draw a new room.</span>
         <button class="btn-sm ghost" data-action="ff-add-corridor">+ Corridor</button>
-        <button class="btn-sm ghost" data-action="ff-aspect" data-dir="-1">Shorter</button>
-        <button class="btn-sm ghost" data-action="ff-aspect" data-dir="1">Taller</button>
         <button class="btn-sm" data-action="ff-done">Done</button>
       </div>`
-    : (isAdmin() ? `<div class="fmap-bar quiet"><button class="btn-sm ghost" data-action="ff-corridor">Resize corridor</button><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
+    : (isAdmin() && !resizing ? `<div class="fmap-bar quiet"><button class="btn-sm ghost" data-action="ff-edit">Edit layout</button></div>` : '');
 
   const legend = editing ? '' : `<div class="fmap-legend">
       <span><i class="free"></i>Free</span><span><i class="inuse"></i>Something in use</span><span><i class="na"></i>Not available</span>
     </div>`;
 
   return `${toolbar}
-    <div class="fmap-scroll">
-      <div class="fmap${editing ? ' editing' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
+    <div class="fmap-scroll" style="${Number(floor.viewWidth) ? `--floor-w:${Number(floor.viewWidth)}px;` : ''}">
+      <div class="fmap${editing ? ' editing' : ''}${resizing ? ' floor-resizing' : ''}" id="ffCanvas" data-floor="${floor.id}" style="padding-bottom:${(aspect * 100).toFixed(2)}%;">
+        ${resizing ? ['e', 'w', 's', 'se', 'sw'].map(h => `<span class="floor-rz ${h}" data-floor-rz="${h}" aria-hidden="true"></span>`).join('') : ''}
         <div class="fmap-inner" data-ff-floor="1">${corridorShapes}${roomBoxes}${popover}<div class="fmap-draw" id="fmapDraw" hidden></div></div>
       </div>
     </div>
