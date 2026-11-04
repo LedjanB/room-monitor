@@ -428,6 +428,7 @@ function loadLocalUIState() {
     if (!raw) return;
     const saved = JSON.parse(raw);
     if (saved.currentFloorId) state.currentFloorId = saved.currentFloorId;
+    ensureValidFloor();
     // Search filters used to be restored here too, which made "Free Now"
     // arm a permanent, invisible status=free filter: closing the results
     // panel clears the text box but not the filters, so days later a search
@@ -501,6 +502,16 @@ function applyStatePayload(p, { resetNav = false } = {}) {
   // (saveDeviceState) don't sync the counter, so the server's copy can lag
   // behind ids this client already handed out.
   if (p.uidCounter) state.uidCounter = Math.max(state.uidCounter, p.uidCounter);
+  ensureValidFloor();
+}
+
+/** The floor this browser last looked at may have been deleted (by anyone).
+ *  Fall back to the first floor instead of showing an empty, unnamed view. */
+export function ensureValidFloor() {
+  if (floors.length && !floors.some(f => f.id === state.currentFloorId)) {
+    state.currentFloorId = floors[0].id;
+    state.currentRoom = null;
+  }
 }
 
 export function loadState() {
