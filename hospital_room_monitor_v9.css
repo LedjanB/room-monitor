@@ -1538,6 +1538,8 @@ body{
 :root[data-theme="dark"] .corridor-col{background:linear-gradient(to bottom,#1a1c21,#16181c);border-color:#2b2f36;}
 :root[data-theme="dark"] .room-btn{background:rgba(28,30,35,.96);border-color:#2e3239;color:var(--text);}
 :root[data-theme="dark"] .room-btn:hover{background:#22252b;border-color:#454a54;box-shadow:0 10px 28px rgba(0,0,0,.35);}
+/* Keep the red "something in use" stripe; the dark border colour above would paint over it. */
+:root[data-theme="dark"] .room-btn.has-inuse{border-left:5px solid var(--red);}
 :root[data-theme="dark"] .empty-cell{border-color:#2e3239;}
 :root[data-theme="dark"] .floor-tab{background:rgba(28,30,35,.96);border-color:#2e3239;color:var(--text2);}
 :root[data-theme="dark"] .floor-tab.active{background:var(--text);border-color:var(--text);color:#101114;}
