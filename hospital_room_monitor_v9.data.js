@@ -4,7 +4,8 @@ import {
   getAuthSession,
 } from './hospital_room_monitor_v9.auth.js';
 import {
-  db, ref, get, set, push, onValue, onChildAdded, onChildRemoved, remove,
+  db, ref, get, set, update, push, onValue, onChildAdded, onChildRemoved, remove,
+  runTransaction,
 } from './hospital_room_monitor_v9.firebase.js';
 
 export const STATUS = {
@@ -305,6 +306,43 @@ const STORAGE_KEY = 'hrm_v9_state_v1';
 // "Known sharp edges" in ARCHITECTURE.md).
 const LOCAL_UI_KEY = 'hrm_v9_local_ui_v1';
 const stateRef = ref(db, 'state');
+// What this tab last saw from the server for each device's status entry
+// and position (JSON strings, keyed by device id). saveState() only writes
+// entries that differ from this, so a tab with stale data (asleep overnight,
+// lost sync) never pushes its old copy of everyone else's devices back.
+const _baseDevState = {};
+const _basePositions = {};
+const DEFAULT_DEV_STATE_JSON = JSON.stringify(normalizeDevState());
+
+function resetBaselines() {
+  Object.keys(_baseDevState).forEach(k => delete _baseDevState[k]);
+  Object.entries(devState).forEach(([id, e]) => { _baseDevState[id] = JSON.stringify(e); });
+  Object.keys(_basePositions).forEach(k => delete _basePositions[k]);
+  Object.entries(positions).forEach(([id, p]) => { _basePositions[id] = JSON.stringify(p); });
+}
+
+function markDevBaseline(devId) {
+  if (devState[devId]) _baseDevState[devId] = JSON.stringify(devState[devId]);
+  else delete _baseDevState[devId];
+}
+
+/** Adds `<key>/<id>` entries to `updates` for every id whose local value
+ *  differs from the baseline, then moves the baseline forward. */
+function diffInto(updates, key, local, base, defaultJson) {
+  const ids = new Set([...Object.keys(local), ...Object.keys(base)]);
+  ids.forEach(id => {
+    const cur = local[id] ? JSON.stringify(local[id]) : null;
+    const was = id in base ? base[id] : null;
+    if (cur === was) return;
+    // A blank default entry this tab created just by looking at a device
+    // (getDeviceState) is not a real change: never let it overwrite a
+    // status the server may have and this tab never received.
+    if (was === null && cur === defaultJson) { base[id] = cur; return; }
+    updates[`${key}/${id}`] = cur === null ? null : JSON.parse(cur);
+    if (cur === null) delete base[id]; else base[id] = cur;
+  });
+}
+
 let applyingRemote = false; // guard so our own writes don't re-apply through the listener
 
 // ── server-corrected clock ──────────────────────────────────────────
@@ -370,7 +408,19 @@ export function saveState() {
   try {
     const payload = buildStatePayload();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    set(stateRef, payload).catch(e => reportSyncError('Could not save to the server — teammates may not see this change.', e));
+    // Structural parts are written whole. devState and positions are NOT:
+    // only the entries this tab actually changed (deleted/restored devices,
+    // etc.) are written, each at its own path. A whole-tree set() here used
+    // to overwrite teammates' fresh statuses with this tab's stale copy.
+    const updates = {
+      floors: payload.floors,
+      rooms: payload.rooms,
+      trash: payload.trash,
+    };
+    if (payload.uidCounter != null) updates.uidCounter = payload.uidCounter;
+    diffInto(updates, 'devState', devState, _baseDevState, DEFAULT_DEV_STATE_JSON);
+    diffInto(updates, 'positions', positions, _basePositions, null);
+    update(stateRef, updates).catch(e => reportSyncError('Could not save to the server — teammates may not see this change.', e));
   } catch (e) {
     console.warn('Failed to save state', e);
   }
@@ -389,6 +439,7 @@ export function saveDeviceState(devId) {
   try {
     set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(getDeviceState(devId))))
       .catch(e => reportSyncError('Could not save the device change to the server — teammates may not see it.', e));
+    markDevBaseline(devId);
   } catch (e) {
     console.warn('Failed to save device state', e);
   }
@@ -406,6 +457,7 @@ export function saveDevicePosition(devId) {
   if (!p) return;
   try {
     set(ref(db, `state/positions/${devId}`), p).catch(e => reportSyncError('Could not save the new position to the server — it may snap back.', e));
+    _basePositions[devId] = JSON.stringify(p);
   } catch (e) {
     console.warn('Failed to save position', e);
   }
@@ -503,6 +555,7 @@ function applyStatePayload(p, { resetNav = false } = {}) {
   // behind ids this client already handed out.
   if (p.uidCounter) state.uidCounter = Math.max(state.uidCounter, p.uidCounter);
   ensureValidFloor();
+  resetBaselines();
 }
 
 /** The floor this browser last looked at may have been deleted (by anyone).
@@ -698,48 +751,64 @@ function applyDeviceExpiry() {
   const todayKey = expiryDayKey(now);
   const changed = [];
   Object.entries(devState).forEach(([devId, entry]) => {
-    if (!entry || entry.status === STATUS.FREE) return;
-    if (!entry.since) {
-      // Legacy data from before this field existed — give it a clock now
-      // rather than assuming it's already overdue.
-      entry.since = now;
-      changed.push(devId);
-      return;
-    }
-    // A `since` in the future (bad clock on whichever client stamped it)
-    // must not count as "a previous day" — treat it as fresh instead.
-    if (entry.since > now) {
-      entry.since = now;
-      changed.push(devId);
-      return;
-    }
-    if (expiryDayKey(entry.since) !== todayKey) {
-      entry.history = [{ status: STATUS.FREE, by: '', at: now, auto: true }, ...(Array.isArray(entry.history) ? entry.history : [])].slice(0, HISTORY_MAX_ENTRIES);
-      entry.status = STATUS.FREE;
-      entry.inUse = false;
-      entry.employee = '';
-      entry.notAvailableReason = '';
-      entry.since = now;
-      changed.push(devId);
-    }
+    if (expireEntry(entry, now, todayKey)) changed.push(devId);
   });
   return changed;
 }
 
-/** Writes the given devices' corrected local state to their own Firebase
- *  subtree. Deliberately bypasses saveDeviceState()'s applyingRemote guard:
- *  these corrections are computed while processing a remote snapshot, but
- *  they MUST still reach the server — otherwise the stale in-use value lives
- *  on the server forever and every client keeps re-reverting to it. Called
- *  only right after a remote apply (guard already false). Idempotent: a
- *  device freed today won't match applyDeviceExpiry() again, so no loop. */
+/** Expiry rule for ONE device entry. Mutates it in place, returns true if
+ *  it changed. Shared by the local pass and the server-side transaction so
+ *  both apply exactly the same rule. */
+function expireEntry(entry, now, todayKey) {
+  if (!entry || entry.status === STATUS.FREE) return false;
+  if (!entry.since) {
+    // Legacy data from before this field existed: give it a clock now
+    // rather than assuming it's already overdue.
+    entry.since = now;
+    return true;
+  }
+  // A `since` in the future (bad clock on whichever client stamped it)
+  // must not count as "a previous day": treat it as fresh instead.
+  if (entry.since > now) {
+    entry.since = now;
+    return true;
+  }
+  if (expiryDayKey(entry.since) !== todayKey) {
+    entry.history = [{ status: STATUS.FREE, by: '', at: now, auto: true }, ...(Array.isArray(entry.history) ? entry.history : [])].slice(0, HISTORY_MAX_ENTRIES);
+    entry.status = STATUS.FREE;
+    entry.inUse = false;
+    entry.employee = '';
+    entry.notAvailableReason = '';
+    entry.since = now;
+    return true;
+  }
+  return false;
+}
+
+/** Writes expiry corrections to the server.
+ *
+ *  Uses a transaction per device, NOT set(). The local devState can be
+ *  stale (a tab that slept overnight and lost sync still holds yesterday's
+ *  "in use"). A blind set() of that stale entry overwrote a teammate's
+ *  fresh "in use" from this morning AND wiped its history (Nov 11 bug:
+ *  F 4-2 and F 6-1 were marked in use at ~10:10, then an old tab woke up
+ *  at 10:17 and auto-freed them with yesterday's data).
+ *
+ *  The transaction re-runs the expiry rule against the SERVER's current
+ *  value, so it only frees a device that is still overdue on the server,
+ *  and never touches anything else in the entry. */
 function persistExpiryCorrections(devIds) {
   if (!devIds.length) return;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload())); } catch (e) { /* ignore */ }
   devIds.forEach(devId => {
-    const entry = devState[devId];
-    if (!entry) return;
-    set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(entry)))
+    runTransaction(ref(db, `state/devState/${devId}`), current => {
+      // null = nothing cached yet. Returning it unchanged is a no-op; if the
+      // server actually has data, Firebase retries with the real value.
+      if (!current) return current;
+      const now = serverNow();
+      if (!expireEntry(current, now, expiryDayKey(now))) return; // abort: nothing to do
+      return current;
+    }, { applyLocally: false })
       .catch(e => reportSyncError('Could not save an auto-expired status to the server.', e));
   });
 }
@@ -749,6 +818,8 @@ function persistExpiryCorrections(devIds) {
 function runDeviceExpiry() {
   const changed = applyDeviceExpiry();
   persistExpiryCorrections(changed);
+  // The transaction owns these writes; saveState() must not resend them.
+  changed.forEach(markDevBaseline);
   return changed.length > 0;
 }
 
@@ -832,11 +903,21 @@ function applyNoteExpiry() {
  *  expired notes live there forever and every client keeps re-adding them. */
 function persistNoteExpiry({ roomsChanged, changedDevices }) {
   if (!roomsChanged && !changedDevices.length) return false;
+  changedDevices.forEach(markDevBaseline); // transaction owns these writes
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildStatePayload())); } catch (e) { /* ignore */ }
+  // Transaction, not set(): same stale-tab problem as persistExpiryCorrections().
+  // Only the notes field is changed, and only on the server's current value.
   changedDevices.forEach(devId => {
-    const entry = devState[devId];
-    if (!entry) return;
-    set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(entry)))
+    runTransaction(ref(db, `state/devState/${devId}`), current => {
+      if (!current) return current;
+      if (!Array.isArray(current.notes) || !current.notes.length) return;
+      const now = serverNow();
+      const cutoff = now - NOTE_TTL_MS;
+      const kept = current.notes.filter(note => noteTimestamp(note, now) >= cutoff);
+      if (kept.length === current.notes.length) return;
+      current.notes = kept;
+      return current;
+    }, { applyLocally: false })
       .catch(e => reportSyncError('Could not remove an expired device note from the server.', e));
   });
   if (roomsChanged) {

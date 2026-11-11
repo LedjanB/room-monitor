@@ -87,6 +87,13 @@ design — worst case it's caught within 30 min of midnight, not the instant the
 over). Data from before this field existed (no `since`) gets a fresh clock starting now
 rather than being treated as already-expired.
 
+Expiry writes go through `runTransaction()` per device, never a blind `set()`. The local
+`devState` can be stale (a tab that slept overnight still holds yesterday's In Use), and a
+blind `set()` of it overwrote teammates' fresh statuses and wiped their history (Nov 11, 2026:
+F 4-2 and F 6-1 marked In Use at ~10:10, auto-freed at 10:17 by an old tab). The transaction
+re-checks the rule against the server's current value, so only devices still overdue on the
+server get freed. Device-note expiry uses the same pattern.
+
 Quick status cycling: every device tile (except beds, which have no status) has a small
 colored dot in the corner (`.dev-quick-toggle` in `render.js`'s `deviceHTML()`) that cycles
 Free → In Use → Not Available → Free on click, without opening the full detail panel — for
@@ -311,6 +318,12 @@ would need rethinking if this ever handled anything actually sensitive or advers
    once (a room briefly lost most of its data during heavy testing). Low real-world risk for
    a 20-person team, but if it becomes a real complaint the remaining fix is to move room
    notes and structural edits onto their own scoped `update()` paths too.
+   **Device statuses and positions are no longer in that blast radius:** since Nov 11, 2026
+   `saveState()` uses `update()` and writes `floors`/`rooms`/`trash`/`uidCounter` whole, but
+   `devState/<id>` and `positions/<id>` only for entries this tab actually changed versus what
+   it last received from the server (`_baseDevState`/`_basePositions`, reset in
+   `applyStatePayload()`). A stale tab adding a room note no longer resets everyone's
+   statuses. Blank default entries created locally by `getDeviceState()` are never written.
 3. **Reseeding an empty `/state` must use the pristine `DEFAULT_ROOMS`/`DEFAULT_FLOORS`
    snapshot** (captured at module load, before anything can mutate it) — never the live,
    possibly `localStorage`-tainted `rooms`/`floors` arrays. Otherwise whichever browser

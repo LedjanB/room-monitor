@@ -4,6 +4,7 @@
 import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js';
 import {
   getDatabase, ref, get, set, update, remove, push, onValue, onChildAdded, onChildRemoved,
+  runTransaction,
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js';
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged,
@@ -25,6 +26,7 @@ export const db = getDatabase(app);
 export const auth = getAuth(app);
 export {
   ref, get, set, update, remove, push, onValue, onChildAdded, onChildRemoved,
+  runTransaction,
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
 };
 
