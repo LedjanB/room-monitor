@@ -437,12 +437,48 @@ export function saveDeviceState(devId) {
   } catch (e) { /* ignore */ }
   if (applyingRemote) return;
   try {
-    set(ref(db, `state/devState/${devId}`), JSON.parse(JSON.stringify(getDeviceState(devId))))
-      .catch(e => reportSyncError('Could not save the device change to the server — teammates may not see it.', e));
+    const local = JSON.parse(JSON.stringify(getDeviceState(devId)));
+    const base = devId in _baseDevState ? JSON.parse(_baseDevState[devId]) : normalizeDevState();
+    // Only the fields this tab actually changed since it last heard from
+    // the server. Writing the whole entry let a stale tab (asleep, lost
+    // sync) reset a teammate's fresh status just by adding a note or
+    // editing a field on the same device.
+    const changed = Object.keys(local).filter(k => JSON.stringify(local[k]) !== JSON.stringify(base[k]));
     markDevBaseline(devId);
+    if (!changed.length) return;
+    runTransaction(ref(db, `state/devState/${devId}`), current => {
+      const next = current ? { ...current } : {};
+      changed.forEach(k => {
+        if (k === 'notes') next.notes = mergeList(next.notes, base.notes, local.notes, n => n.id);
+        else if (k === 'history') next.history = mergeList(next.history, base.history, local.history, h => JSON.stringify(h)).slice(0, HISTORY_MAX_ENTRIES);
+        else next[k] = local[k];
+      });
+      return next;
+    }, { applyLocally: false })
+      .catch(e => reportSyncError('Could not save the device change to the server — teammates may not see it.', e));
   } catch (e) {
     console.warn('Failed to save device state', e);
   }
+}
+
+/** Applies this tab's edits to a list (notes, history) on top of the
+ *  server's current list, instead of replacing it: items this tab added go
+ *  on top, items it removed are dropped, items it edited are replaced.
+ *  Anything a teammate added meanwhile is kept. */
+function mergeList(serverList, baseList, localList, keyOf) {
+  const server = Array.isArray(serverList) ? serverList : [];
+  const base = Array.isArray(baseList) ? baseList : [];
+  const local = Array.isArray(localList) ? localList : [];
+  const baseByKey = new Map(base.map(x => [keyOf(x), JSON.stringify(x)]));
+  const localByKey = new Map(local.map(x => [keyOf(x), x]));
+  const removed = new Set([...baseByKey.keys()].filter(k => !localByKey.has(k)));
+  const added = local.filter(x => !baseByKey.has(keyOf(x)));
+  const edited = new Map(local.filter(x => baseByKey.has(keyOf(x)) && baseByKey.get(keyOf(x)) !== JSON.stringify(x)).map(x => [keyOf(x), x]));
+  const kept = server
+    .filter(x => !removed.has(keyOf(x)))
+    .map(x => edited.get(keyOf(x)) || x);
+  const keptKeys = new Set(kept.map(keyOf));
+  return [...added.filter(x => !keptKeys.has(keyOf(x))), ...kept];
 }
 
 /** Narrow, path-scoped save for a single device's drag position — see

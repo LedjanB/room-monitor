@@ -324,6 +324,10 @@ would need rethinking if this ever handled anything actually sensitive or advers
    it last received from the server (`_baseDevState`/`_basePositions`, reset in
    `applyStatePayload()`). A stale tab adding a room note no longer resets everyone's
    statuses. Blank default entries created locally by `getDeviceState()` are never written.
+   `saveDeviceState()` follows the same idea: it writes only the fields this tab changed, via
+   a transaction on the server's current entry, and merges `notes`/`history` (add/remove/edit
+   by key) instead of replacing them. So a stale tab adding a device note no longer resets that
+   device's status or drops a teammate's newer notes/history.
 3. **Reseeding an empty `/state` must use the pristine `DEFAULT_ROOMS`/`DEFAULT_FLOORS`
    snapshot** (captured at module load, before anything can mutate it) — never the live,
    possibly `localStorage`-tainted `rooms`/`floors` arrays. Otherwise whichever browser
